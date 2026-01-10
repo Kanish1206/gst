@@ -18,3 +18,4 @@ scikit-learn>=1.2.0
 # Excel Support (Optional but recommended for GST work)
 
 openpyxl>=3.1.0
+
