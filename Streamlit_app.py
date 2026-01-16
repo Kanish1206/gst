@@ -108,7 +108,12 @@ if gst_file and pur_file:
         with st.spinner("🔄 Matching records and calculating variances..."):
             try:
                 # ✅ CORRECT FUNCTION CALL
-                result_df = reco_logic.process_reco(df_2b, df_books)
+                #result_df = reco_logic.process_reco(df_2b, df_books)
+                 result_df = reco_logic.process_reco(
+                             df_2b,
+                             df_books,
+                             threshold=match_threshold
+                             )
 
                 # --------------------------------------------------
                 # Summary Metrics
@@ -190,3 +195,4 @@ else:
 # --------------------------------------------------
 st.markdown("---")
 st.caption("GST Reconciliation Tool v2.0 | Built with Streamlit")
+
