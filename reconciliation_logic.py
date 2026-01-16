@@ -137,3 +137,4 @@ for gstin in common_gstins:
 
     # Drop the internal pandas _merge column before returning
     return merged_diagnose
+
