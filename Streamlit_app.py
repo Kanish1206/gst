@@ -107,12 +107,10 @@ if gst_file and pur_file:
     if st.button("🚀 Execute Reconciliation"):
         with st.spinner("🔄 Matching records and calculating variances..."):
             try:
-                # ✅ CORRECT FUNCTION CALL
-                #result_df = reco_logic.process_reco(df_2b, df_books)
-                 result_df = reco_logic.process_reco(
-                             df_2b,
-                             df_books,
-                             threshold=match_threshold
+                result_df = reco_logic.process_reco(
+                    df_2b,
+                    df_books,
+                    threshold=match_threshold
                 )
 
                 # --------------------------------------------------
@@ -147,10 +145,7 @@ if gst_file and pur_file:
 
                 with tab2:
                     output = io.BytesIO()
-                    with pd.ExcelWriter(
-                        output,
-                        engine="xlsxwriter"
-                    ) as writer:
+                    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                         result_df.to_excel(
                             writer,
                             index=False,
@@ -195,6 +190,3 @@ else:
 # --------------------------------------------------
 st.markdown("---")
 st.caption("GST Reconciliation Tool v2.0 | Built with Streamlit")
-
-
-
