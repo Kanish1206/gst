@@ -2,7 +2,7 @@ import pandas as pd
 from rapidfuzz import process, fuzz
 
 
-def process_reco(gst, pur):
+def process_reco(gst, pur,threshold=90):
     """
     GST 2B vs Purchase Register Reconciliation
     """
@@ -80,7 +80,7 @@ def process_reco(gst, pur):
 
     common_gstins = set(left_only_df["Supplier GSTIN"]) & set(right_only_df["Supplier GSTIN"])
 
-    threshold = 90
+    #threshold = 90
     used_pur_indexes = set()
     rows_to_drop = []
 
@@ -133,3 +133,4 @@ def process_reco(gst, pur):
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
+
