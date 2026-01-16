@@ -58,13 +58,13 @@ def process_reco(gst, pur):
     )
 
     # ----------------------------
-    # Match Status (NO categorical)
+    # Match Status (FORCE OBJECT)
     # ----------------------------
     merged["Match_Status"] = merged["_merge"].map({
         "both": "Exact Match",
         "left_only": "Open in 2B",
         "right_only": "Open in Books"
-    })
+    }).astype("object")   # 🔑 critical fix
 
     merged["Matched_Doc_no._other_Side"] = None
     merged["Fuzzy Score"] = 0.0
@@ -113,17 +113,13 @@ def process_reco(gst, pur):
 
             used_pur_indexes.add(pur_idx)
 
+            # ✅ SAFE ASSIGNMENTS
             merged.loc[left_idx, "Match_Status"] = "Fuzzy Match"
             merged.loc[left_idx, "Matched_Doc_no._other_Side"] = matched_str
             merged.loc[left_idx, "Fuzzy Score"] = score
 
             pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
             merged.loc[left_idx, pur_cols] = merged.loc[pur_idx, pur_cols].values
-            merged["Match_Status"] = merged["_merge"].map({
-            "both": "Exact Match",
-            "left_only": "Open in 2B",
-            "right_only": "Open in Books"
-             })
 
             rows_to_drop.append(pur_idx)
 
@@ -137,4 +133,3 @@ def process_reco(gst, pur):
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
-
