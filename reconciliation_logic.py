@@ -1,10 +1,21 @@
 import pandas as pd
 from rapidfuzz import process, fuzz
 
+
 def process_reco(gst, pur):
+    """
+    GST 2B vs Purchase Register Reconciliation
+    """
 
+    # ----------------------------
+    # Basic cleaning
+    # ----------------------------
     pur["FI Document Number"] = pur["FI Document Number"].astype(str)
+    gst["Document Number"] = gst["Document Number"].astype(str)
 
+    # ----------------------------
+    # Aggregation
+    # ----------------------------
     gst_agg = (
         gst.groupby(["Supplier GSTIN", "Document Number"], as_index=False)
         .agg({
@@ -35,6 +46,9 @@ def process_reco(gst, pur):
         })
     )
 
+    # ----------------------------
+    # Exact Match Merge
+    # ----------------------------
     merged = gst_agg.merge(
         pur_agg,
         on=["Supplier GSTIN", "Document Number"],
@@ -43,6 +57,9 @@ def process_reco(gst, pur):
         indicator=True
     )
 
+    # ----------------------------
+    # Match Status (NO categorical)
+    # ----------------------------
     merged["Match_Status"] = merged["_merge"].map({
         "both": "Exact Match",
         "left_only": "Open in 2B",
@@ -52,6 +69,9 @@ def process_reco(gst, pur):
     merged["Matched_Doc_no._other_Side"] = None
     merged["Fuzzy Score"] = 0.0
 
+    # ----------------------------
+    # Prepare Fuzzy Matching
+    # ----------------------------
     left_only_df = merged[merged["_merge"] == "left_only"].copy()
     right_only_df = merged[merged["_merge"] == "right_only"].copy()
 
@@ -64,15 +84,20 @@ def process_reco(gst, pur):
     used_pur_indexes = set()
     rows_to_drop = []
 
+    # ----------------------------
+    # Fuzzy Matching Logic
+    # ----------------------------
     for gstin in common_gstins:
         left_subset = left_only_df[left_only_df["Supplier GSTIN"] == gstin]
         right_subset = right_only_df[right_only_df["Supplier GSTIN"] == gstin]
 
         right_map = right_subset["Document Number_str"].to_dict()
 
-        for left_idx, row in left_subset.iterrows():
+        for left_idx, left_row in left_subset.iterrows():
+            query = left_row["Document Number_str"]
+
             match = process.extractOne(
-                row["Document Number_str"],
+                query,
                 right_map,
                 scorer=fuzz.token_sort_ratio,
                 score_cutoff=threshold
@@ -99,6 +124,9 @@ def process_reco(gst, pur):
 
     merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
 
+    # ----------------------------
+    # Tax Difference
+    # ----------------------------
     merged["diff IGST"] = merged["IGST Amount_PUR"].fillna(0) - merged["IGST Amount_2B"].fillna(0)
     merged["diff CGST"] = merged["CGST Amount_PUR"].fillna(0) - merged["CGST Amount_2B"].fillna(0)
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
