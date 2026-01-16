@@ -50,7 +50,7 @@ with st.sidebar:
         width=80
     )
     st.title("Settings")
-    match_threshold = st.slider("Matching Sensitivity (%)", 80, 100, 95)
+    match_threshold = st.slider("Matching Sensitivity (%)", 50, 100, 95)
     st.divider()
     st.markdown("### Support")
     st.info("Contact Finance IT for column mapping issues.")
@@ -190,3 +190,4 @@ else:
 # --------------------------------------------------
 st.markdown("---")
 st.caption("GST Reconciliation Tool v2.0 | Built with Streamlit")
+
