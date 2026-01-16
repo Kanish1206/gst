@@ -118,8 +118,8 @@ if gst_file and pur_file:
                 # --------------------------------------------------
                 # Summary Metrics
                 # --------------------------------------------------
-                st.subheader("📊 Reconciliation Summary")
-                m1, m2, m3, m4 = st.columns(4)
+                    st.subheader("📊 Reconciliation Summary")
+                    m1, m2, m3, m4 = st.columns(4)
 
                 m1.metric("Total Books Records", len(df_books))
                 m2.metric("Total 2B Records", len(df_2b))
@@ -195,4 +195,5 @@ else:
 # --------------------------------------------------
 st.markdown("---")
 st.caption("GST Reconciliation Tool v2.0 | Built with Streamlit")
+
 
