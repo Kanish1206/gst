@@ -3,7 +3,7 @@ import numpy as np
 import re
 from rapidfuzz import process, fuzz
 
-def process_reco(gst, pur,threshold = 90):
+def process_reco(gst, pur,threshold):
     """
     Accepts two DataFrames (gst and pur) and returns the reconciled DataFrame.
     """
@@ -125,4 +125,5 @@ def process_reco(gst, pur,threshold = 90):
 
     # Drop the internal pandas _merge column before returning
     return merged_diagnose
+
 
