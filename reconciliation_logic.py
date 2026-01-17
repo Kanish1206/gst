@@ -134,7 +134,7 @@ for left_idx, left_row in left_only_df.iterrows():
 
     rows_to_drop.append(pur_idx)
 
-merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
+    merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
 
     # ----------------------------
     # Tax Difference
@@ -144,6 +144,7 @@ merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
+
 
 
 
