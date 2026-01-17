@@ -3,7 +3,7 @@ import numpy as np
 import re
 from rapidfuzz import process, fuzz
 
-def process_reco(gst, pur):
+def process_reco(gst, pur,threshold = 90):
     """
     Accepts two DataFrames (gst and pur) and returns the reconciled DataFrame.
     """
@@ -82,7 +82,7 @@ def process_reco(gst, pur):
     
     common_gstins = set(left_only_df['Supplier GSTIN'].unique()) & set(right_only_df['Supplier GSTIN'].unique())
     
-    threshold = 90
+    #threshold = 90
     rows_to_drop = []
 
     # 4. --- Fuzzy Matching Loop ---
