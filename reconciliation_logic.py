@@ -35,6 +35,7 @@ def process_reco(gst, pur,threshold=90):
         )
         .agg({
             "Vendor/Customer Name": "first",
+            "FI Document Number":"first",
             "IGST Amount": "sum",
             "CGST Amount": "sum",
             "SGST Amount": "sum",
@@ -133,5 +134,6 @@ def process_reco(gst, pur,threshold=90):
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
+
 
 
