@@ -73,58 +73,68 @@ def process_reco(gst, pur,threshold=90):
     # ----------------------------
     # Prepare Fuzzy Matching
     # ----------------------------
-    left_only_df = merged[merged["_merge"] == "left_only"].copy()
-    right_only_df = merged[merged["_merge"] == "right_only"].copy()
+    # ----------------------------
+# Prepare Fuzzy Matching (OPTIMIZED)
+# ----------------------------
+left_only_df = merged[merged["_merge"] == "left_only"].copy()
+right_only_df = merged[merged["_merge"] == "right_only"].copy()
 
-    left_only_df["Document Number_str"] = left_only_df["Document Number"].astype(str)
-    right_only_df["Document Number_str"] = right_only_df["Document Number"].astype(str)
+left_only_df["doc_norm"] = left_only_df["Document Number"].apply(normalize_doc)
+right_only_df["doc_norm"] = right_only_df["Document Number"].apply(normalize_doc)
 
-    common_gstins = set(left_only_df["Supplier GSTIN"]) & set(right_only_df["Supplier GSTIN"])
+# Pre-group once (huge speed win)
+right_groups = {
+    gstin: grp[["doc_norm"]].to_dict()["doc_norm"]
+    for gstin, grp in right_only_df.groupby("Supplier GSTIN")
+}
 
-    #threshold = 90
-    used_pur_indexes = set()
-    rows_to_drop = []
+used_pur_indexes = set()
+rows_to_drop = []
+
+for left_idx, left_row in left_only_df.iterrows():
+    gstin = left_row["Supplier GSTIN"]
+
+    if gstin not in right_groups:
+        continue
+
+    query = left_row["doc_norm"]
+    if not query:
+        continue
+
+    candidates = right_groups[gstin]
+
+    # 🔑 Batch fuzzy (faster + safer)
+    matches = process.extract(
+        query,
+        candidates,
+        scorer=fuzz.ratio,
+        score_cutoff=threshold,
+        limit=1
+    )
+
+    if not matches:
+        continue
+
+    matched_str, score, pur_idx = matches[0]
+
+    if pur_idx in used_pur_indexes:
+        continue
+
+    used_pur_indexes.add(pur_idx)
 
     # ----------------------------
-    # Fuzzy Matching Logic
+    # SAFE ASSIGNMENTS
     # ----------------------------
-    for gstin in common_gstins:
-        left_subset = left_only_df[left_only_df["Supplier GSTIN"] == gstin]
-        right_subset = right_only_df[right_only_df["Supplier GSTIN"] == gstin]
+    merged.loc[left_idx, "Match_Status"] = "Fuzzy Match"
+    merged.loc[left_idx, "Matched_Doc_no._other_Side"] = matched_str
+    merged.loc[left_idx, "Fuzzy Score"] = score
 
-        right_map = right_subset["Document Number_str"].to_dict()
+    pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
+    merged.loc[left_idx, pur_cols] = merged.loc[pur_idx, pur_cols].values
 
-        for left_idx, left_row in left_subset.iterrows():
-            query = left_row["Document Number_str"]
+    rows_to_drop.append(pur_idx)
 
-            match = process.extractOne(
-                query,
-                right_map,
-                scorer=fuzz.token_sort_ratio,
-                score_cutoff=threshold
-            )
-
-            if not match:
-                continue
-
-            matched_str, score, pur_idx = match
-
-            if pur_idx in used_pur_indexes:
-                continue
-
-            used_pur_indexes.add(pur_idx)
-
-            # ✅ SAFE ASSIGNMENTS
-            merged.loc[left_idx, "Match_Status"] = "Fuzzy Match"
-            merged.loc[left_idx, "Matched_Doc_no._other_Side"] = matched_str
-            merged.loc[left_idx, "Fuzzy Score"] = score
-
-            pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
-            merged.loc[left_idx, pur_cols] = merged.loc[pur_idx, pur_cols].values
-
-            rows_to_drop.append(pur_idx)
-
-    merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
+merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
 
     # ----------------------------
     # Tax Difference
@@ -134,6 +144,7 @@ def process_reco(gst, pur,threshold=90):
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
+
 
 
 
