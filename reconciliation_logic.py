@@ -30,7 +30,7 @@ def process_reco(gst, pur,threshold=90):
 
     pur_agg = (
         pur.groupby(
-            ["GSTIN Of Vendor/Customer", "Reference Document No.", "FI Document Number"],
+            ["GSTIN Of Vendor/Customer", "Reference Document No."],
             as_index=False
         )
         .agg({
@@ -133,4 +133,5 @@ def process_reco(gst, pur,threshold=90):
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
+
 
