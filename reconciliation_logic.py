@@ -23,7 +23,6 @@ def process_reco(gst, pur,threshold):
         gst.groupby(["Supplier GSTIN", "Document Number"], as_index=False)
            .agg({
                "Supplier Name" : "first",
-               #"Remark 2B": "first",
                "Return Period" : "first",
                "Document Date": "first",
                "IGST Amount" : "sum",
@@ -36,7 +35,7 @@ def process_reco(gst, pur,threshold):
     pur_agg = (
         pur.groupby(["GSTIN Of Vendor/Customer","Reference Document No.","FI Document Number"], as_index=False)
            .agg({
-               #"Return Period": "first",
+               "Return Period": "first",
                "Vendor/Customer Name" : "first",
                "Reference Document No.": "first",
                "FI Document Number": "first",
@@ -126,6 +125,7 @@ def process_reco(gst, pur,threshold):
 
     # Drop the internal pandas _merge column before returning
     return merged_diagnose
+
 
 
 
