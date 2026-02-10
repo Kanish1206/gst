@@ -99,32 +99,31 @@ def process_reco(gst, pur, threshold):
     # ------------------ Fuzzy Matching (SAFE) ------------------
     for idx_2b, row in left.iterrows():
 
-        gstin = row["Supplier GSTIN"]
-        query = row["Document Number_norm"]
+    gstin = row["Supplier GSTIN"]
+    query = row["Document Number_norm"]
 
-        if not query or gstin not in right_groups:
-            continue
+    if not query or len(query) < 3 or gstin not in right_groups:
+        continue
 
-        candidates = right_groups[gstin]
+    candidates = right_groups[gstin]
 
-        # 🔒 Bind document numbers with their real DataFrame indices
-        choices = list(
-            zip(
-                candidates["Document Number_norm"].tolist(),
-                candidates.index.tolist()
-            )
+    choices = list(
+        zip(
+            candidates["Document Number_norm"].tolist(),
+            candidates.index.tolist()
         )
+    )
 
-        match = process.extractOne(
-            query,
-            choices,
-            scorer=fuzz.ratio,
-            score_cutoff=threshold
-        )
+    match = process.extractOne(
+        query,
+        choices,
+        scorer=fuzz.token_sort_ratio,
+        score_cutoff=threshold
+    )
 
-        if match:
-            (_, pur_idx), score, _ = match
-            fuzzy_matches.append((idx_2b, pur_idx, score))
+    if match:
+        (_, pur_idx), score, _ = match
+        fuzzy_matches.append((idx_2b, pur_idx, score))
 
     # ------------------ Apply Matches ------------------
     used_pur_rows = set()
@@ -153,3 +152,4 @@ def process_reco(gst, pur, threshold):
         )
 
     return merged.drop(columns="_merge")
+
