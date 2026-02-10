@@ -1,39 +1,33 @@
 import pandas as pd
-import numpy as np
 import re
 from rapidfuzz import process, fuzz
 
 
-# -------------------------------------------------
-# 1. INVOICE NORMALIZATION (CRITICAL)
-# -------------------------------------------------
-def normalize_invoice_no(x):
+def normalize_doc(x):
+    """
+    Normalize document numbers for fuzzy matching
+    """
     if pd.isna(x):
         return ""
-
-    x = str(x).upper().strip()
-    x = re.sub(r'[^A-Z0-9]', '', x)
-
-    prefix = ''.join(re.findall(r'[A-Z]+', x))
-    numbers = ''.join(re.findall(r'\d+', x)).lstrip('0')
-
-    return f"{prefix}{numbers}"
+    x = str(x).upper()
+    x = re.sub(r'[^A-Z0-9]', '', x)  # keep only alphanumeric
+    return x
 
 
-# -------------------------------------------------
-# 2. MAIN RECONCILIATION FUNCTION
-# -------------------------------------------------
-def process_reco(gst, pur, fuzzy_threshold=90):
+def process_reco(gst, pur, threshold=90):
+    """
+    GST 2B vs Purchase Register Reconciliation
+    """
 
-    # ---------------------------
-    # DATA STANDARDIZATION
-    # ---------------------------
+    # ----------------------------
+    # Basic cleaning
+    # ----------------------------
+    pur["FI Document Number"] = pur["FI Document Number"].astype(str)
     gst["Document Number"] = gst["Document Number"].astype(str)
-    pur["Reference Document No."] = pur["Reference Document No."].astype(str)
 
-    # ---------------------------
-    # AGGREGATION
-    # ---------------------------
+    # ----------------------------
+    # Aggregation
+    # ----------------------------
     gst_agg = (
         gst.groupby(["Supplier GSTIN", "Document Number"], as_index=False)
         .agg({
@@ -64,140 +58,98 @@ def process_reco(gst, pur, fuzzy_threshold=90):
         })
     )
 
-    # ---------------------------
-    # NORMALIZATION
-    # ---------------------------
-    gst_agg["Doc_Normalized"] = gst_agg["Document Number"].apply(normalize_invoice_no)
-    pur_agg["Doc_Normalized"] = pur_agg["Document Number"].apply(normalize_invoice_no)
-
-    # ---------------------------
-    # EXACT MATCH (NORMALIZED)
-    # ---------------------------
+    # ----------------------------
+    # Exact Match Merge
+    # ----------------------------
     merged = gst_agg.merge(
         pur_agg,
-        on=["Supplier GSTIN", "Doc_Normalized"],
+        on=["Supplier GSTIN", "Document Number"],
         how="outer",
         suffixes=("_2B", "_PUR"),
         indicator=True
     )
 
-    # ---------------------------
-    # DIAGNOSTIC LAYER
-    # ---------------------------
+    # ----------------------------
+    # Match Status (FORCE OBJECT)
+    # ----------------------------
     merged["Match_Status"] = merged["_merge"].map({
         "both": "Exact Match",
         "left_only": "Open in 2B",
         "right_only": "Open in Books"
-    })
+    }).astype("object")
 
     merged["Matched_Doc_no._other_Side"] = None
-    merged["Fuzzy Score"] = np.nan
+    merged["Fuzzy Score"] = 0.0
 
-    # Audit Columns
-    merged["Match_Type"] = None
-    merged["Match_Logic"] = None
-    merged["Threshold_Used"] = None
-    merged["Reviewer_Action"] = "Pending"
-    merged["System_Remark"] = None
-
-    merged.loc[merged["Match_Status"] == "Exact Match", [
-        "Match_Type", "Match_Logic"
-    ]] = ["System", "Exact_Normalized"]
-
-    # ---------------------------
-    # FUZZY MATCH PREPARATION
-    # ---------------------------
+    # ----------------------------
+    # Prepare Fuzzy Matching
+    # ----------------------------
     left_only_df = merged[merged["_merge"] == "left_only"].copy()
     right_only_df = merged[merged["_merge"] == "right_only"].copy()
 
-    common_gstins = (
-        set(left_only_df["Supplier GSTIN"])
-        & set(right_only_df["Supplier GSTIN"])
-    )
+    left_only_df["doc_norm"] = left_only_df["Document Number"].apply(normalize_doc)
+    right_only_df["doc_norm"] = right_only_df["Document Number"].apply(normalize_doc)
 
-    used_pur_indices = set()
+    # Cache candidates per GSTIN (BIG performance win)
+    right_groups = {
+        gstin: grp["doc_norm"].to_dict()
+        for gstin, grp in right_only_df.groupby("Supplier GSTIN")
+    }
+
+    used_pur_indexes = set()
     rows_to_drop = []
 
-    # ---------------------------
-    # FUZZY MATCHING (ONE-TO-ONE)
-    # ---------------------------
-    for gstin in common_gstins:
-        left_sub = left_only_df[left_only_df["Supplier GSTIN"] == gstin]
-        right_sub = right_only_df[right_only_df["Supplier GSTIN"] == gstin]
+    # ----------------------------
+    # OPTIMIZED FUZZY MATCHING
+    # ----------------------------
+    for left_idx, left_row in left_only_df.iterrows():
+        gstin = left_row["Supplier GSTIN"]
 
-        right_choices = right_sub["Doc_Normalized"].tolist()
-        right_index_map = dict(zip(right_choices, right_sub.index))
+        if gstin not in right_groups:
+            continue
 
-        for left_idx, left_row in left_sub.iterrows():
-            query = left_row["Doc_Normalized"]
+        query = left_row["doc_norm"]
+        if not query:
+            continue
 
-            if len(query) < 3:
-                continue
+        candidates = right_groups[gstin]
 
-            match = process.extractOne(
-                query,
-                right_choices,
-                scorer=fuzz.token_sort_ratio,
-                score_cutoff=fuzzy_threshold
-            )
+        match = process.extractOne(
+            query,
+            candidates,
+            scorer=fuzz.ratio,
+            score_cutoff=threshold
+        )
 
-            if not match:
-                continue
+        if not match:
+            continue
 
-            matched_value, score, _ = match
-            right_idx = right_index_map.get(matched_value)
+        matched_str, score, pur_idx = match
 
-            if right_idx in used_pur_indices:
-                continue
+        if pur_idx in used_pur_indexes:
+            continue
 
-            # ---- APPLY MATCH ----
-            merged.loc[left_idx, "Match_Status"] = "Fuzzy Match"
-            merged.loc[left_idx, "Matched_Doc_no._other_Side"] = matched_value
-            merged.loc[left_idx, "Fuzzy Score"] = score
+        used_pur_indexes.add(pur_idx)
 
-            merged.loc[left_idx, [
-                "Match_Type",
-                "Match_Logic",
-                "Threshold_Used",
-                "System_Remark"
-            ]] = [
-                "System",
-                "Fuzzy_Normalized",
-                fuzzy_threshold,
-                "Invoice number format mismatch"
-            ]
+        # ----------------------------
+        # SAFE ASSIGNMENTS
+        # ----------------------------
+        merged.loc[left_idx, "Match_Status"] = "Fuzzy Match"
+        merged.loc[left_idx, "Matched_Doc_no._other_Side"] = matched_str
+        merged.loc[left_idx, "Fuzzy Score"] = score
 
-            # Copy Purchase values
-            pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
-            merged.loc[left_idx, pur_cols] = merged.loc[right_idx, pur_cols]
+        pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
+        merged.loc[left_idx, pur_cols] = merged.loc[pur_idx, pur_cols].values
 
-            used_pur_indices.add(right_idx)
-            rows_to_drop.append(right_idx)
+        rows_to_drop.append(pur_idx)
 
-    # ---------------------------
-    # CLEANUP
-    # ---------------------------
     merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
 
-    # ---------------------------
-    # TAX DIFFERENCES
-    # ---------------------------
-    merged["diff IGST"] = (
-        merged["IGST Amount_PUR"].fillna(0)
-        - merged["IGST Amount_2B"].fillna(0)
-    )
-
-    merged["diff CGST"] = (
-        merged["CGST Amount_PUR"].fillna(0)
-        - merged["CGST Amount_2B"].fillna(0)
-    )
-
-    merged["diff SGST"] = (
-        merged["SGST Amount_PUR"].fillna(0)
-        - merged["SGST Amount_2B"].fillna(0)
-    )
-
-    # Final cleanup
-    merged.drop(columns=["_merge"], inplace=True)
+    # ----------------------------
+    # Tax Difference
+    # ----------------------------
+    merged["diff IGST"] = merged["IGST Amount_PUR"].fillna(0) - merged["IGST Amount_2B"].fillna(0)
+    merged["diff CGST"] = merged["CGST Amount_PUR"].fillna(0) - merged["CGST Amount_2B"].fillna(0)
+    merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
     return merged
