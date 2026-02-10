@@ -15,9 +15,12 @@ def normalize_series(s: pd.Series) -> pd.Series:
     )
 
 # ------------------ MAIN FUNCTION ------------------
-def process_reco(gst, pur, threshold):
+def process_reco(gst: pd.DataFrame, pur: pd.DataFrame, threshold: int) -> pd.DataFrame:
 
     # ------------------ Data Cleaning ------------------
+    pur = pur.copy()
+    gst = gst.copy()
+
     pur["FI Document Number"] = pur["FI Document Number"].astype(str)
 
     # ------------------ Aggregation ------------------
@@ -96,39 +99,47 @@ def process_reco(gst, pur, threshold):
 
     fuzzy_matches = []
 
-    # ------------------ Fuzzy Matching (SAFE) ------------------
+    # ------------------ Fuzzy Matching (INDEX SAFE) ------------------
     for idx_2b, row in left.iterrows():
 
-    gstin = row["Supplier GSTIN"]
-    query = row["Document Number_norm"]
+        gstin = row["Supplier GSTIN"]
+        query = row["Document Number_norm"]
 
-    if not query or len(query) < 3 or gstin not in right_groups:
-        continue
+        if not query or len(query) < 3:
+            continue
 
-    candidates = right_groups[gstin]
+        if gstin not in right_groups:
+            continue
 
-    choices = list(
-        zip(
-            candidates["Document Number_norm"].tolist(),
-            candidates.index.tolist()
+        candidates = right_groups[gstin]
+
+        if candidates.empty:
+            continue
+
+        # Bind normalized doc + real index
+        choices = list(
+            zip(
+                candidates["Document Number_norm"].tolist(),
+                candidates.index.tolist()
+            )
         )
-    )
 
-    match = process.extractOne(
-        query,
-        choices,
-        scorer=fuzz.token_sort_ratio,
-        score_cutoff=threshold
-    )
+        match = process.extractOne(
+            query,
+            choices,
+            scorer=fuzz.token_sort_ratio,
+            score_cutoff=threshold
+        )
 
-    if match:
-        (_, pur_idx), score, _ = match
-        fuzzy_matches.append((idx_2b, pur_idx, score))
+        if match:
+            (_, pur_idx), score, _ = match
+            fuzzy_matches.append((idx_2b, pur_idx, score))
 
-    # ------------------ Apply Matches ------------------
+    # ------------------ Apply Fuzzy Matches ------------------
     used_pur_rows = set()
 
     for idx_2b, idx_pur, score in fuzzy_matches:
+
         if idx_pur in used_pur_rows:
             continue
 
@@ -142,7 +153,7 @@ def process_reco(gst, pur, threshold):
         used_pur_rows.add(idx_pur)
 
     # Drop matched Book-only rows
-    merged = merged.drop(index=used_pur_rows)
+    merged.drop(index=used_pur_rows, inplace=True, errors="ignore")
 
     # ------------------ Tax Differences ------------------
     for tax in ["IGST", "CGST", "SGST"]:
@@ -152,4 +163,3 @@ def process_reco(gst, pur, threshold):
         )
 
     return merged.drop(columns="_merge")
-
