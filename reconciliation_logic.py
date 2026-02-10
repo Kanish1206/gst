@@ -87,36 +87,38 @@ def process_reco(gst, pur,threshold):
 
     # 4. --- Fuzzy Matching Loop ---
     for gstin_val in common_gstins:
-        left_subset = left_only_df[left_only_df['Supplier GSTIN'] == gstin_val]
-        right_subset = right_only_df[right_only_df['Supplier GSTIN'] == gstin_val]
+    left_subset = left_only_df[left_only_df['Supplier GSTIN'] == gstin_val]
+    right_subset = right_only_df[right_only_df['Supplier GSTIN'] == gstin_val]
 
-        if not left_subset.empty and not right_subset.empty:
-            right_choices_series = right_subset['Document Number_str']
-            
-            for original_idx_2B, row_2B in left_subset.iterrows():
-                query_val = row_2B['Document Number_str']
-                match_result = process.extractOne(query_val, right_choices_series, scorer=fuzz.ratio, score_cutoff=threshold)
+    if not left_subset.empty and not right_subset.empty:
+        right_choices_series = right_subset['Document Number_norm']
 
-                if match_result:
-                    matched_pur_string, score, original_idx_PUR = match_result
-                    
-                    # Update status to Fuzzy Match
-                    merged_diagnose.loc[original_idx_2B, 'Match_Status'] = 'Fuzzy Match'
-                    
-                    # POPULATE YOUR REQUESTED COLUMNS
-                    merged_diagnose.loc[original_idx_2B, 'Matched_Doc_no._other_Side'] = matched_pur_string
-                    merged_diagnose.loc[original_idx_2B, 'Fuzzy Score'] = score
+        for original_idx_2B, row_2B in left_subset.iterrows():
+            query_val = row_2B['Document Number_norm']
 
-                    # BRIDGING DATA: Copy Book tax values to the 2B row for calculation
-                    pur_cols = [col for col in merged_diagnose.columns if col.endswith('_PUR')]
-                    for col in pur_cols:
-                        merged_diagnose.loc[original_idx_2B, col] = merged_diagnose.loc[original_idx_PUR, col]
+            if not query_val:
+                continue
 
-                    # Mark the redundant Book-only row for deletion
-                    rows_to_drop.append(original_idx_PUR)
+            match_result = process.extractOne(
+                query_val,
+                right_choices_series,
+                scorer=fuzz.token_set_ratio,   # CHANGED (more robust)
+                score_cutoff=threshold
+            )
 
-    # Clean up the dataframe by removing the extra rows we just merged
-    merged_diagnose.drop(index=rows_to_drop, inplace=True, errors='ignore')
+            if match_result:
+                matched_norm, score, original_idx_PUR = match_result
+
+                merged_diagnose.loc[original_idx_2B, 'Match_Status'] = 'Fuzzy Match'
+                merged_diagnose.loc[original_idx_2B, 'Matched_Doc_no._other_Side'] = \
+                    right_only_df.loc[original_idx_PUR, 'Document Number']
+                merged_diagnose.loc[original_idx_2B, 'Fuzzy Score'] = score
+
+                pur_cols = [col for col in merged_diagnose.columns if col.endswith('_PUR')]
+                for col in pur_cols:
+                    merged_diagnose.loc[original_idx_2B, col] = merged_diagnose.loc[original_idx_PUR, col]
+
+                rows_to_drop.append(original_idx_PUR)
 
     # 5. --- Final Calculations ---
     merged_diagnose["diff IGST"] = merged_diagnose["IGST Amount_PUR"].fillna(0) - merged_diagnose["IGST Amount_2B"].fillna(0)
@@ -125,6 +127,7 @@ def process_reco(gst, pur,threshold):
 
     # Drop the internal pandas _merge column before returning
     return merged_diagnose
+
 
 
 
