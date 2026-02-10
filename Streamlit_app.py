@@ -110,7 +110,7 @@ if gst_file and pur_file:
                 result_df = reco_logic.process_reco(
                     df_2b,
                     df_books,
-                    fuzzy_threshold=match_threshold #threshold=match_threshold
+                    threshold=match_threshold #fuzzy_threshold=match_threshold
                 )
 
                 # --------------------------------------------------
@@ -190,6 +190,7 @@ else:
 # --------------------------------------------------
 st.markdown("---")
 st.caption("GST Reconciliation Tool v2.0 | Built with Streamlit")
+
 
 
 
