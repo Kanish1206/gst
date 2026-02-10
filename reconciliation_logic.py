@@ -1,6 +1,16 @@
 import pandas as pd
 import numpy as np
+import re
 from rapidfuzz import process, fuzz
+
+# ------------------ NORMALIZATION FUNCTION ------------------
+def normalize_doc(x):
+    if pd.isna(x):
+        return ""
+    x = str(x).upper()
+    x = re.sub(r'[^A-Z0-9]', '', x)  # keep only alnum
+    return x
+
 
 def process_reco(gst, pur, threshold):
 
@@ -63,12 +73,9 @@ def process_reco(gst, pur, threshold):
     left_only_df = merged_diagnose[merged_diagnose["_merge"] == "left_only"].copy()
     right_only_df = merged_diagnose[merged_diagnose["_merge"] == "right_only"].copy()
 
-    left_only_df["Document Number_norm"] = (
-        left_only_df["Document Number"].astype(str).str.upper().str.replace(r"\W+", "", regex=True)
-    )
-    right_only_df["Document Number_norm"] = (
-        right_only_df["Document Number"].astype(str).str.upper().str.replace(r"\W+", "", regex=True)
-    )
+    # ✅ CENTRALIZED NORMALIZATION
+    left_only_df["Document Number_norm"] = left_only_df["Document Number"].apply(normalize_doc)
+    right_only_df["Document Number_norm"] = right_only_df["Document Number"].apply(normalize_doc)
 
     common_gstins = (
         set(left_only_df["Supplier GSTIN"]) &
