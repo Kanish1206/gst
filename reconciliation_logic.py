@@ -101,7 +101,7 @@ def process_reco(gst, pur, fuzzy_threshold=90):
     merged["Match_Logic"] = None
     merged["Threshold_Used"] = None
     merged["Reviewer_Action"] = "Pending"
-    merged["System_Remark"] = None
+    #merged["System_Remark"] = None
 
     merged.loc[merged["Match_Status"] == "Exact Match", [
         "Match_Type", "Match_Logic"
@@ -204,4 +204,5 @@ def process_reco(gst, pur, fuzzy_threshold=90):
     merged.drop(columns=["_merge"], inplace=True)
 
     return merged
+
 
