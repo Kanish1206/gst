@@ -112,7 +112,7 @@ def process_reco(gst, pur, threshold):
 
         if match:
             _, score, pos = match
-            pur_idx = candidates.index[pos]
+            pur_idx = candidates.iloc[pos].name #pur_idx = candidates.index[pos]
 
             fuzzy_matches.append((idx, pur_idx, score))
 
@@ -142,3 +142,4 @@ def process_reco(gst, pur, threshold):
         )
 
     return merged.drop(columns="_merge")
+
