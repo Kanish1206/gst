@@ -19,7 +19,7 @@ def process_reco(gst, pur, threshold):
 
     pur["FI Document Number"] = pur["FI Document Number"].astype(str)
 
-    # ------------------ Aggregation ------------------
+    # --- Aggregation ---
     gst_agg = (
         gst.groupby(["Supplier GSTIN", "Document Number", "Return Period"], as_index=False)
            .agg({
@@ -51,7 +51,6 @@ def process_reco(gst, pur, threshold):
         })
     )
 
-    # ------------------ Merge ------------------
     merged = gst_agg.merge(
         pur_agg,
         on=["Supplier GSTIN", "Document Number"],
@@ -60,85 +59,58 @@ def process_reco(gst, pur, threshold):
         indicator=True
     )
 
-    merged["Match_Status"] = np.select(
-        [
-            merged["_merge"] == "both",
-            merged["_merge"] == "left_only",
-            merged["_merge"] == "right_only"
-        ],
-        [
-            "Exact Match",
-            "Open in 2B",
-            "Open in Books"
-        ],
-        default="Unknown"
-    )
+    merged["Match_Status"] = merged["_merge"].map({
+        "both": "Exact Match",
+        "left_only": "Open in 2B",
+        "right_only": "Open in Books"
+    }).astype("category").cat.add_categories("Fuzzy Match")
 
     merged["Matched_Doc_no._other_Side"] = None
-    merged["Fuzzy Score"] = np.nan
+    merged["Fuzzy Score"] = 0.0
 
-    # ------------------ Prepare Fuzzy ------------------
     left = merged[merged["_merge"] == "left_only"].copy()
     right = merged[merged["_merge"] == "right_only"].copy()
 
-    left["Document Number_norm"] = normalize_series(left["Document Number"])
-    right["Document Number_norm"] = normalize_series(right["Document Number"])
+    left["Document Number_str"] = left["Document Number"].astype(str)
+    right["Document Number_str"] = right["Document Number"].astype(str)
 
-    # Index right side by GSTIN for fast lookup
-    right_groups = {
-        gstin: grp
-        for gstin, grp in right.groupby("Supplier GSTIN")
-    }
+    rows_to_drop = []
 
-    fuzzy_matches = []
-
-    # ------------------ Fuzzy Matching ------------------
-    for idx, row in left.iterrows():
-
-        gstin = row["Supplier GSTIN"]
-        query = row["Document Number_norm"]
-
-        if not query or gstin not in right_groups:
+    for gstin, left_grp in left.groupby("Supplier GSTIN"):
+        right_grp = right[right["Supplier GSTIN"] == gstin]
+        if right_grp.empty:
             continue
 
-        candidates = right_groups[gstin]
+        choices = right_grp["Document Number_str"]
 
-        match = process.extractOne(
-            query,
-            candidates["Document Number_norm"],
-            scorer=fuzz.ratio,   # faster & correct here
-            score_cutoff=threshold
-        )
+        for idx_2b, row in left_grp.iterrows():
+            match = process.extractOne(
+                row["Document Number_str"],
+                choices,
+                scorer=fuzz.ratio,
+                score_cutoff=threshold
+            )
 
-        if match:
-            _, score, pos = match
-            pur_idx = candidates.index[pos]
+            if match:
+                _, score, pos = match
+                idx_pur = choices.index[pos]
 
-            fuzzy_matches.append((idx, pur_idx, score))
+                merged.loc[idx_2b, "Match_Status"] = "Fuzzy Match"
+                merged.loc[idx_2b, "Matched_Doc_no._other_Side"] = merged.loc[idx_pur, "Document Number"]
+                merged.loc[idx_2b, "Fuzzy Score"] = score
 
-    # ------------------ Apply Fuzzy Matches ------------------
-    used_pur_rows = set()
+                pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
+                merged.loc[idx_2b, pur_cols] = merged.loc[idx_pur, pur_cols]
 
-    for idx_2B, idx_PUR, score in fuzzy_matches:
-        if idx_PUR in used_pur_rows:
-            continue
+                rows_to_drop.append(idx_pur)
 
-        merged.loc[idx_2B, "Match_Status"] = "Fuzzy Match"
-        merged.loc[idx_2B, "Matched_Doc_no._other_Side"] = merged.loc[idx_PUR, "Document Number"]
-        merged.loc[idx_2B, "Fuzzy Score"] = score
+    merged.drop(index=rows_to_drop, inplace=True, errors="ignore")
 
-        pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
-        merged.loc[idx_2B, pur_cols] = merged.loc[idx_PUR, pur_cols]
-
-        used_pur_rows.add(idx_PUR)
-
-    merged = merged.drop(index=used_pur_rows)
-
-    # ------------------ Differences ------------------
     for tax in ["IGST", "CGST", "SGST"]:
         merged[f"diff {tax}"] = (
-            merged[f"{tax} Amount_PUR"].fillna(0) -
-            merged[f"{tax} Amount_2B"].fillna(0)
+            merged[f"{tax} Amount_PUR"].fillna(0)
+            - merged[f"{tax} Amount_2B"].fillna(0)
         )
 
     return merged.drop(columns="_merge")
+
