@@ -21,6 +21,7 @@ def process_reco(gst, pur, threshold=90):
     gst["Document Number"] = gst["Document Number"].astype(str)
     pur["FI Document Number"] = pur["FI Document Number"].astype(str)
 
+    # GST Aggregation
     gst_agg = (
         gst.groupby(["Supplier GSTIN", "Document Number"], as_index=False)
         .agg({
@@ -33,6 +34,7 @@ def process_reco(gst, pur, threshold=90):
         })
     )
 
+    # Purchase Aggregation
     pur_agg = (
         pur.groupby(
             ["GSTIN Of Vendor/Customer", "Reference Document No.", "FI Document Number"],
@@ -120,13 +122,13 @@ def process_reco(gst, pur, threshold=90):
                 matched_str, score, right_idx = match
                 matches.append((left_idx, right_idx, score, matched_str))
                 
-                # Remove used candidate (Greedy Match)
+                # Greedy Match: Remove used candidate
                 del candidates[right_idx]
                 if not candidates:
                     break
 
     # ----------------------------
-    # 5. Bulk Update (FIXED LOGIC)
+    # 5. Bulk Update (FIXED HERE)
     # ----------------------------
     if matches:
         left_idxs, right_idxs, scores, match_strs = zip(*matches)
@@ -139,20 +141,20 @@ def process_reco(gst, pur, threshold=90):
         merged.loc[left_idxs, "Fuzzy Score"] = scores
         merged.loc[left_idxs, "Matched_Doc_no._other_Side"] = match_strs
 
-        # --- FIX STARTS HERE ---
-        # Identify ALL columns to transfer from Purchase side
-        # 1. Columns with _PUR suffix (e.g., IGST Amount_PUR)
+        # --- KEY FIX: Separate Text and Numeric updates ---
+        
+        # 1. Update Text Columns (The ones you were missing)
+        # We explicitly select these columns to ensure they copy over
+        text_cols = ["Vendor/Customer Name", "FI Document Number"]
+        for col in text_cols:
+            if col in merged.columns:
+                # Copy values directly
+                merged.loc[left_idxs, col] = merged.loc[right_idxs, col].values
+
+        # 2. Update Numeric/Other Columns (ending in _PUR)
         suffixed_cols = [c for c in merged.columns if c.endswith("_PUR")]
-        
-        # 2. Unique Purchase columns (No suffix because they didn't clash with GST)
-        unique_pur_cols = ["Vendor/Customer Name", "FI Document Number"]
-        
-        # Combine lists
-        cols_to_transfer = suffixed_cols + unique_pur_cols
-        
-        # Transfer values from Right (Purchase) rows to Left (GST) rows
-        merged.loc[left_idxs, cols_to_transfer] = merged.loc[right_idxs, cols_to_transfer].values
-        # --- FIX ENDS HERE ---
+        if suffixed_cols:
+             merged.loc[left_idxs, suffixed_cols] = merged.loc[right_idxs, suffixed_cols].values
 
         # Drop the now-matched "Open in Books" rows
         merged.drop(index=right_idxs, inplace=True)
@@ -164,6 +166,7 @@ def process_reco(gst, pur, threshold=90):
     merged["diff CGST"] = merged["CGST Amount_PUR"].fillna(0) - merged["CGST Amount_2B"].fillna(0)
     merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
+    # Cleanup
     merged.drop(columns=["doc_norm", "_merge"], inplace=True)
 
     return merged
