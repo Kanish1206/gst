@@ -89,6 +89,9 @@ def process_reco(gst, pur, fuzzy_threshold=90):
         "left_only": "Open in 2B",
         "right_only": "Open in Books"
     })
+    merged["Match_Status"] = merged["Match_Status"].cat.add_categories(
+    ["Fuzzy Match"]
+    )
 
     merged["Matched_Doc_no._other_Side"] = None
     merged["Fuzzy Score"] = np.nan
@@ -201,3 +204,4 @@ def process_reco(gst, pur, fuzzy_threshold=90):
     merged.drop(columns=["_merge"], inplace=True)
 
     return merged
+
