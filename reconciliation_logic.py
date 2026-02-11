@@ -3,9 +3,6 @@ import numpy as np
 from rapidfuzz import process, fuzz
 
 
-# -------------------------------------------------
-# 1. Normalization Utility
-# -------------------------------------------------
 def normalize_doc(series):
     return (
         series.astype(str)
@@ -15,34 +12,24 @@ def normalize_doc(series):
     )
 
 
-# -------------------------------------------------
-# 2. Main Reconciliation Function
-# -------------------------------------------------
-def process_reco(
-    gst,
-    pur,
-    doc_threshold=90,
-    amount_tolerance=5
-):
-    """
-    Production Grade GST 2B Reconciliation Tool
-    --------------------------------------------------
-    doc_threshold     : Fuzzy matching threshold (0-100)
-    amount_tolerance  : Allowed difference in invoice value
-    """
+def process_reco(gst, pur, doc_threshold=85, amount_tolerance=10):
 
     gst = gst.copy()
     pur = pur.copy()
 
     # -------------------------------------------------
-    # STEP 1: Aggregation
+    # 1️⃣ Normalize FIRST (Critical Fix)
     # -------------------------------------------------
-    gst["Document Number"] = gst["Document Number"].astype(str)
-    pur["Reference Document No."] = pur["Reference Document No."].astype(str)
+    gst["doc_norm"] = normalize_doc(gst["Document Number"])
+    pur["doc_norm"] = normalize_doc(pur["Reference Document No."])
 
+    # -------------------------------------------------
+    # 2️⃣ Aggregate on NORMALIZED doc
+    # -------------------------------------------------
     gst_agg = (
-        gst.groupby(["Supplier GSTIN", "Document Number"], as_index=False)
+        gst.groupby(["Supplier GSTIN", "doc_norm"], as_index=False)
         .agg({
+            "Document Number": "first",
             "Supplier Name": "first",
             "Document Date": "first",
             "IGST Amount": "sum",
@@ -54,10 +41,11 @@ def process_reco(
 
     pur_agg = (
         pur.groupby(
-            ["GSTIN Of Vendor/Customer", "Reference Document No.", "FI Document Number"],
+            ["GSTIN Of Vendor/Customer", "doc_norm", "FI Document Number"],
             as_index=False
         )
         .agg({
+            "Reference Document No.": "first",
             "Vendor/Customer Name": "first",
             "IGST Amount": "sum",
             "CGST Amount": "sum",
@@ -65,17 +53,16 @@ def process_reco(
             "Invoice Value": "sum"
         })
         .rename(columns={
-            "GSTIN Of Vendor/Customer": "Supplier GSTIN",
-            "Reference Document No.": "Document Number"
+            "GSTIN Of Vendor/Customer": "Supplier GSTIN"
         })
     )
 
     # -------------------------------------------------
-    # STEP 2: Exact Merge
+    # 3️⃣ Exact Match on NORMALIZED doc
     # -------------------------------------------------
     merged = gst_agg.merge(
         pur_agg,
-        on=["Supplier GSTIN", "Document Number"],
+        on=["Supplier GSTIN", "doc_norm"],
         how="outer",
         suffixes=("_2B", "_PUR"),
         indicator=True
@@ -83,27 +70,21 @@ def process_reco(
 
     merged["Match_Status"] = None
     merged["Fuzzy Score"] = 0.0
-    merged["Matched_Doc_no._other_Side"] = None
 
-    # -------------------------------------------------
-    # STEP 3: Classify Exact Matches
-    # -------------------------------------------------
     both_mask = merged["_merge"] == "both"
 
-    merged.loc[both_mask, "diff Invoice Value"] = (
+    merged["diff Invoice Value"] = (
         merged["Invoice Value_PUR"].fillna(0)
         - merged["Invoice Value_2B"].fillna(0)
     )
 
-    exact_amount_match = (
-        both_mask &
-        (merged["diff Invoice Value"].abs() <= amount_tolerance)
-    )
-
-    merged.loc[exact_amount_match, "Match_Status"] = "Exact Match"
+    merged.loc[
+        both_mask & (merged["diff Invoice Value"].abs() <= amount_tolerance),
+        "Match_Status"
+    ] = "Exact Match"
 
     merged.loc[
-        both_mask & ~exact_amount_match,
+        both_mask & (merged["diff Invoice Value"].abs() > amount_tolerance),
         "Match_Status"
     ] = "Exact Doc - Amount Mismatch"
 
@@ -118,41 +99,24 @@ def process_reco(
     ] = "Open in Books"
 
     # -------------------------------------------------
-    # STEP 4: Prepare for Fuzzy Matching
+    # 4️⃣ Fuzzy ONLY on unmatched
     # -------------------------------------------------
     left_df = merged[merged["Match_Status"] == "Open in 2B"].copy()
     right_df = merged[merged["Match_Status"] == "Open in Books"].copy()
 
-    merged["doc_norm"] = normalize_doc(merged["Document Number"])
+    for gstin, left_grp in left_df.groupby("Supplier GSTIN"):
 
-    # Group right side by GSTIN
-    right_groups = {}
-    for gstin, grp in right_df.groupby("Supplier GSTIN"):
-        right_groups[gstin] = grp.index.tolist()
+        right_grp = right_df[right_df["Supplier GSTIN"] == gstin]
 
-    # -------------------------------------------------
-    # STEP 5: Fuzzy Matching with Amount Validation
-    # -------------------------------------------------
-    for gstin, left_group in left_df.groupby("Supplier GSTIN"):
-
-        if gstin not in right_groups:
+        if right_grp.empty:
             continue
 
-        available_right_indices = right_groups[gstin]
-
-        for left_idx in left_group.index:
-
-            if not available_right_indices:
-                break
+        for left_idx in left_grp.index:
 
             left_doc = merged.at[left_idx, "doc_norm"]
-            left_amount = merged.at[left_idx, "Invoice Value_2B"]
+            left_amt = merged.at[left_idx, "Invoice Value_2B"]
 
-            # Build candidate dictionary
-            candidates = {
-                idx: merged.at[idx, "doc_norm"]
-                for idx in available_right_indices
-            }
+            candidates = right_grp["doc_norm"].to_dict()
 
             match = process.extractOne(
                 left_doc,
@@ -163,55 +127,24 @@ def process_reco(
             )
 
             if match:
-                matched_str, score, right_idx = match
+                _, score, right_idx = match
 
-                right_amount = merged.at[right_idx, "Invoice Value_PUR"]
+                right_amt = merged.at[right_idx, "Invoice Value_PUR"]
 
-                # Amount validation
-                if abs((right_amount or 0) - (left_amount or 0)) <= amount_tolerance:
+                if abs((right_amt or 0) - (left_amt or 0)) <= amount_tolerance:
 
-                    # Update Left Row
                     merged.at[left_idx, "Match_Status"] = "Fuzzy Match"
                     merged.at[left_idx, "Fuzzy Score"] = score
-                    merged.at[left_idx, "Matched_Doc_no._other_Side"] = matched_str
 
-                    # Copy purchase side values
+                    # Copy purchase columns
                     pur_cols = [c for c in merged.columns if c.endswith("_PUR")]
                     for col in pur_cols:
                         merged.at[left_idx, col] = merged.at[right_idx, col]
 
-                    # Mark right row as consumed
                     merged.at[right_idx, "Match_Status"] = "Fuzzy Consumed"
 
-                    available_right_indices.remove(right_idx)
-
-    # Remove consumed rows
     merged = merged[merged["Match_Status"] != "Fuzzy Consumed"]
 
-    # -------------------------------------------------
-    # STEP 6: Final Difference Calculations
-    # -------------------------------------------------
-    merged["diff IGST"] = (
-        merged["IGST Amount_PUR"].fillna(0)
-        - merged["IGST Amount_2B"].fillna(0)
-    )
-
-    merged["diff CGST"] = (
-        merged["CGST Amount_PUR"].fillna(0)
-        - merged["CGST Amount_2B"].fillna(0)
-    )
-
-    merged["diff SGST"] = (
-        merged["SGST Amount_PUR"].fillna(0)
-        - merged["SGST Amount_2B"].fillna(0)
-    )
-
-    merged["diff Invoice Value"] = (
-        merged["Invoice Value_PUR"].fillna(0)
-        - merged["Invoice Value_2B"].fillna(0)
-    )
-
-    # Cleanup
-    merged.drop(columns=["_merge", "doc_norm"], inplace=True)
+    merged.drop(columns=["_merge"], inplace=True)
 
     return merged
