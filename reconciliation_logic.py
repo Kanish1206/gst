@@ -1,58 +1,61 @@
 import pandas as pd
 import numpy as np
-import re
 from rapidfuzz import process, fuzz
 
-def process_reco(gst, pur,threshold):
+def normalize_doc_vectorized(series):
     """
-    Accepts two DataFrames (gst and pur) and returns the reconciled DataFrame.
+    Vectorized normalization of document numbers
     """
-    # --- Data Cleaning ---
-    #def clean_doc_no(x):
-    #if pd.isna(x):
-      #return None
-    #return (
-        #str(x)
-        #.strip()
-   # )
-    #gst["Return Period"] = gst["Return Period"].astype(str)
-    pur["FI Document Number"] = pur["FI Document Number"].astype(str)
+    return (
+        series.astype(str)
+        .str.upper()
+        .str.replace(r'[^A-Z0-9]', '', regex=True)
+        .replace('NAN', '')
+    )
+
+def process_reco(gst, pur, threshold=90):
     
-    # --- Aggregation ---
+    # ----------------------------
+    # 1. Aggregation 
+    # ----------------------------
+    gst["Document Number"] = gst["Document Number"].astype(str)
+    pur["FI Document Number"] = pur["FI Document Number"].astype(str)
+
+    # GST Aggregation
     gst_agg = (
-        gst.groupby(["Supplier GSTIN", "Document Number","Return Period"], as_index=False)
-           .agg({
-               "Supplier Name" : "first",
-               #"Return Period" : "first",
-               "Document Date": "first",
-               "IGST Amount" : "sum",
-               "CGST Amount" : "sum",
-               "SGST Amount"  : "sum",
-               "Invoice Value" : "sum"
-           })
+        gst.groupby(["Supplier GSTIN", "Document Number"], as_index=False)
+        .agg({
+            "Supplier Name": "first",
+            "Document Date": "first",
+            "IGST Amount": "sum",
+            "CGST Amount": "sum",
+            "SGST Amount": "sum",
+            "Invoice Value": "sum"
+        })
     )
 
+    # Purchase Aggregation
     pur_agg = (
-        pur.groupby(["GSTIN Of Vendor/Customer","Reference Document No.","FI Document Number"], as_index=False)
-           .agg({
-               "Return Period": "first",
-               "Vendor/Customer Name" : "first",
-               "Reference Document No.": "first",
-               "FI Document Number": "first",
-               "IGST Amount": "sum",
-               "CGST Amount": "sum",
-               "SGST Amount": "sum",
-               "Invoice Value": "sum"
-           })
+        pur.groupby(
+            ["GSTIN Of Vendor/Customer", "Reference Document No.", "FI Document Number"],
+            as_index=False
+        )
+        .agg({
+            "Vendor/Customer Name": "first",
+            "IGST Amount": "sum",
+            "CGST Amount": "sum",
+            "SGST Amount": "sum",
+            "Invoice Value": "sum"
+        })
+        .rename(columns={
+            "GSTIN Of Vendor/Customer": "Supplier GSTIN",
+            "Reference Document No.": "Document Number"
+        })
     )
 
-    # Align Column Names
-    pur_agg = pur_agg.rename(columns={"GSTIN Of Vendor/Customer": "Supplier GSTIN", 
-                                      "Reference Document No.": "Document Number"})
-
-    # --- Initial Merge ---
-    #def process_reco(gst_agg, pur_agg):
-    # 1. --- Initial Exact Match ---
+    # ----------------------------
+    # 2. Exact Match Merge
+    # ----------------------------
     merged = gst_agg.merge(
         pur_agg,
         on=["Supplier GSTIN", "Document Number"],
@@ -61,74 +64,110 @@ def process_reco(gst, pur,threshold):
         indicator=True
     )
 
-    # 2. --- Initialize Table with your requested columns ---
-    merged_diagnose = merged.copy()
-    merged_diagnose["Match_Status"] = merged_diagnose["_merge"].map({
+    merged["Match_Status"] = merged["_merge"].map({
         "both": "Exact Match",
         "left_only": "Open in 2B",
         "right_only": "Open in Books"
-    }).astype('category').cat.add_categories('Fuzzy Match')
-
-    # ADDING YOUR REQUESTED COLUMNS
-    merged_diagnose["Matched_Doc_no._other_Side"] = None
-    merged_diagnose["Fuzzy Score"] = 0.0
-
-    # 3. --- Prepare Fuzzy Matching Logic ---
-    left_only_df = merged_diagnose[merged_diagnose['_merge'] == 'left_only'].copy()
-    right_only_df = merged_diagnose[merged_diagnose['_merge'] == 'right_only'].copy()
-
-    left_only_df['Document Number_str'] = left_only_df['Document Number'].astype(str).replace('nan', '')
-    right_only_df['Document Number_str'] = right_only_df['Document Number'].astype(str).replace('nan', '')
+    }).astype("object")
     
-    common_gstins = set(left_only_df['Supplier GSTIN'].unique()) & set(right_only_df['Supplier GSTIN'].unique())
-    
-    #threshold = 90
-    rows_to_drop = []
+    merged["Matched_Doc_no._other_Side"] = None
+    merged["Fuzzy Score"] = 0.0
 
-    # 4. --- Fuzzy Matching Loop ---
-    for gstin_val in common_gstins:
-        left_subset = left_only_df[left_only_df['Supplier GSTIN'] == gstin_val]
-        right_subset = right_only_df[right_only_df['Supplier GSTIN'] == gstin_val]
+    # ----------------------------
+    # 3. Fuzzy Matching Setup
+    # ----------------------------
+    mask_left = merged["_merge"] == "left_only"
+    mask_right = merged["_merge"] == "right_only"
 
-        if not left_subset.empty and not right_subset.empty:
-            right_choices_series = right_subset['Document Number_str']
+    merged["doc_norm"] = ""
+    merged.loc[mask_left | mask_right, "doc_norm"] = normalize_doc_vectorized(
+        merged.loc[mask_left | mask_right, "Document Number"]
+    )
+
+    left_df = merged[mask_left].copy()
+    right_df = merged[mask_right].copy()
+
+    # Group Right side (Books) by GSTIN
+    right_groups = {}
+    for gstin, group in right_df.groupby("Supplier GSTIN"):
+        valid_docs = group["doc_norm"]
+        valid_docs = valid_docs[valid_docs != ""]
+        if not valid_docs.empty:
+            right_groups[gstin] = valid_docs.to_dict()
+
+    matches = [] 
+
+    # ----------------------------
+    # 4. Fuzzy Matching Loop
+    # ----------------------------
+    for gstin, group in left_df.groupby("Supplier GSTIN"):
+        if gstin not in right_groups:
+            continue
             
-            for original_idx_2B, row_2B in left_subset.iterrows():
-                query_val = row_2B['Document Number_str']
-                match_result = process.extractOne(query_val, right_choices_series, scorer=fuzz.ratio, score_cutoff=threshold)
+        candidates = right_groups[gstin]
+        
+        for left_idx, query in group["doc_norm"].items():
+            if not query:
+                continue
+                
+            match = process.extractOne(
+                query, 
+                candidates, 
+                scorer=fuzz.ratio, 
+                score_cutoff=threshold,
+                processor=None 
+            )
 
-                if match_result:
-                    matched_pur_string, score, original_idx_PUR = match_result
-                    
-                    # Update status to Fuzzy Match
-                    merged_diagnose.loc[original_idx_2B, 'Match_Status'] = 'Fuzzy Match'
-                    
-                    # POPULATE YOUR REQUESTED COLUMNS
-                    merged_diagnose.loc[original_idx_2B, 'Matched_Doc_no._other_Side'] = matched_pur_string
-                    merged_diagnose.loc[original_idx_2B, 'Fuzzy Score'] = score
+            if match:
+                matched_str, score, right_idx = match
+                matches.append((left_idx, right_idx, score, matched_str))
+                
+                # Greedy Match: Remove used candidate
+                del candidates[right_idx]
+                if not candidates:
+                    break
 
-                    # BRIDGING DATA: Copy Book tax values to the 2B row for calculation
-                    pur_cols = [col for col in merged_diagnose.columns if col.endswith('_PUR')]
-                    for col in pur_cols:
-                        merged_diagnose.loc[original_idx_2B, col] = merged_diagnose.loc[original_idx_PUR, col]
+    # ----------------------------
+    # 5. Bulk Update (FIXED HERE)
+    # ----------------------------
+    if matches:
+        left_idxs, right_idxs, scores, match_strs = zip(*matches)
+        
+        left_idxs = list(left_idxs)
+        right_idxs = list(right_idxs)
 
-                    # Mark the redundant Book-only row for deletion
-                    rows_to_drop.append(original_idx_PUR)
+        # Update metadata
+        merged.loc[left_idxs, "Match_Status"] = "Fuzzy Match"
+        merged.loc[left_idxs, "Fuzzy Score"] = scores
+        merged.loc[left_idxs, "Matched_Doc_no._other_Side"] = match_strs
 
-    # Clean up the dataframe by removing the extra rows we just merged
-    merged_diagnose.drop(index=rows_to_drop, inplace=True, errors='ignore')
+        # --- KEY FIX: Separate Text and Numeric updates ---
+        
+        # 1. Update Text Columns (The ones you were missing)
+        # We explicitly select these columns to ensure they copy over
+        text_cols = ["Vendor/Customer Name", "FI Document Number"]
+        for col in text_cols:
+            if col in merged.columns:
+                # Copy values directly
+                merged.loc[left_idxs, col] = merged.loc[right_idxs, col].values
 
-    # 5. --- Final Calculations ---
-    merged_diagnose["diff IGST"] = merged_diagnose["IGST Amount_PUR"].fillna(0) - merged_diagnose["IGST Amount_2B"].fillna(0)
-    merged_diagnose["diff CGST"] = merged_diagnose["CGST Amount_PUR"].fillna(0) - merged_diagnose["CGST Amount_2B"].fillna(0)
-    merged_diagnose["diff SGST"] = merged_diagnose["SGST Amount_PUR"].fillna(0) - merged_diagnose["SGST Amount_2B"].fillna(0)
+        # 2. Update Numeric/Other Columns (ending in _PUR)
+        suffixed_cols = [c for c in merged.columns if c.endswith("_PUR")]
+        if suffixed_cols:
+             merged.loc[left_idxs, suffixed_cols] = merged.loc[right_idxs, suffixed_cols].values
 
-    # Drop the internal pandas _merge column before returning
-    return merged_diagnose
+        # Drop the now-matched "Open in Books" rows
+        merged.drop(index=right_idxs, inplace=True)
 
+    # ----------------------------
+    # 6. Final Calculations
+    # ----------------------------
+    merged["diff IGST"] = merged["IGST Amount_PUR"].fillna(0) - merged["IGST Amount_2B"].fillna(0)
+    merged["diff CGST"] = merged["CGST Amount_PUR"].fillna(0) - merged["CGST Amount_2B"].fillna(0)
+    merged["diff SGST"] = merged["SGST Amount_PUR"].fillna(0) - merged["SGST Amount_2B"].fillna(0)
 
+    # Cleanup
+    merged.drop(columns=["doc_norm", "_merge"], inplace=True)
 
-
-
-
+    return merged
 
