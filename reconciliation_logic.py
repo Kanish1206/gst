@@ -42,7 +42,7 @@ def process_reco(gst, pur, doc_threshold=85, amount_tolerance=10):
 
     pur_agg = (
         pur.groupby(
-            ["GSTIN of Vendor/Customer", "doc_norm", "FI Document Number"],
+            ["GSTIN Of Vendor/Customer", "doc_norm", "FI Document Number"],
             as_index=False
         )
         .agg({
@@ -149,4 +149,5 @@ def process_reco(gst, pur, doc_threshold=85, amount_tolerance=10):
     merged.drop(columns=["_merge"], inplace=True)
 
     return merged
+
 
