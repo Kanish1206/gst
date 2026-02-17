@@ -31,7 +31,7 @@ def process_reco(gst, pur, doc_threshold=85, amount_tolerance=10):
         .agg({
             "Document Number": "first",
             "Supplier Name": "first",
-            "2B Month": "first",
+            #"2B Month": "first",
             "Document Date": "first",
             "IGST Amount": "sum",
             "CGST Amount": "sum",
@@ -150,6 +150,7 @@ def process_reco(gst, pur, doc_threshold=85, amount_tolerance=10):
     merged.drop(columns=["_merge"], inplace=True)
 
     return merged
+
 
 
 
