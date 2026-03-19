@@ -175,17 +175,20 @@ def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_misma
 
     # ---------------- GSTIN MISMATCH (PAN BASED) ----------------
 
-    merged["PAN_2B"] = merged["Supplier GSTIN"].apply(extract_pan)
+    # ---------------- GSTIN MISMATCH (SAFE VERSION) ----------------
+
+merged["PAN_2B"] = merged["Supplier GSTIN"].apply(extract_pan)
 merged["PAN_PUR"] = merged["Vendor/Customer GSTIN"].apply(extract_pan)
 
-for left_idx in merged[merged["Match_Status"] == "Open in 2B"].index:
+open_2b_idx = merged[merged["Match_Status"] == "Open in 2B"].index
+
+for left_idx in open_2b_idx:
 
     left_doc = merged.at[left_idx, "doc_norm"]
     left_val = merged.at[left_idx, "Invoice Value_2B"]
     left_pan = merged.at[left_idx, "PAN_2B"]
     left_gstin = merged.at[left_idx, "Supplier GSTIN"]
 
-    # Step 1: find candidates using VALUE (primary driver)
     candidates = merged[
         (merged["Match_Status"] == "Open in Books") &
         ((merged["Invoice Value_PUR"] - left_val).abs() <= gstin_mismatch_tolerance)
@@ -194,7 +197,6 @@ for left_idx in merged[merged["Match_Status"] == "Open in 2B"].index:
     if candidates.empty:
         continue
 
-    # Step 2: score candidates (doc similarity + PAN match)
     best_match = None
     best_score = -1
 
@@ -204,34 +206,27 @@ for left_idx in merged[merged["Match_Status"] == "Open in 2B"].index:
         right_pan = merged.at[right_idx, "PAN_PUR"]
         right_gstin = merged.at[right_idx, "Supplier GSTIN"]
 
-        # PAN must match
         if left_pan != right_pan or left_pan == "":
             continue
 
-        # GSTIN must be different
         if left_gstin == right_gstin:
             continue
 
-        # Doc similarity score
         score = fuzz.ratio(left_doc, right_doc)
 
         if score > best_score:
             best_score = score
             best_match = right_idx
 
-    # Step 3: apply match
     if best_match is not None and best_score >= 70:
-
         merged.at[left_idx, "Match_Status"] = "GSTIN Mismatch"
         merged.at[left_idx, "Fuzzy Score"] = best_score
-
         merged.at[left_idx, "Vendor/Customer GSTIN"] = merged.at[best_match, "Vendor/Customer GSTIN"]
 
-        # consume
         merged.at[best_match, "Match_Status"] = "GSTIN Consumed"
 
-# remove consumed
-merged = merged[merged["Match_Status"] != "GSTIN Consumed"]
+# Remove consumed rows
+    merged = merged[merged["Match_Status"] != "GSTIN Consumed"]
     merged.drop(columns=["_merge"], inplace=True)
 
     return merged
