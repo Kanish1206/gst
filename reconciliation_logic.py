@@ -121,7 +121,7 @@ def process_reco(
             merged[col] = 0
         merged[col] = pd.to_numeric(merged[col], errors="coerce").fillna(0)
 
-    # ---------------- DIFF ----------------
+    # ---------------- INITIAL DIFF & EXACT MATCHING ----------------
     merged["IGST Diff"] = merged["IGST Amount_PUR"] - merged["IGST Amount_2B"]
     merged["CGST Diff"] = merged["CGST Amount_PUR"] - merged["CGST Amount_2B"]
     merged["SGST Diff"] = merged["SGST Amount_PUR"] - merged["SGST Amount_2B"]
@@ -146,6 +146,12 @@ def process_reco(
     merged.loc[merged["_merge"] == "left_only", "Match_Status"] = "Open in 2B"
     merged.loc[merged["_merge"] == "right_only", "Match_Status"] = "Open in Books"
 
+    # Define columns to pull over when a fuzzy/GSTIN match is found
+    pur_columns_to_copy = [col for col in merged.columns if col.endswith("_PUR")] + [
+        "Reference Document No.", "Vendor/Customer Name", 
+        "FI Document Number", "Taxable Amount", "Vendor/Customer GSTIN"
+    ]
+
     # ---------------- FUZZY MATCH ----------------
     for gstin in merged["Supplier GSTIN"].dropna().unique():
 
@@ -169,25 +175,18 @@ def process_reco(
             if match:
                 _, score, right_idx = match
 
-                for col in merged.columns:
-                    if col.endswith("_PUR") or col in [
-                        "Reference Document No.",
-                        "Vendor/Customer Name",
-                        "FI Document Number",
-                        "Taxable Amount",
-                        "Vendor/Customer GSTIN",
-                    ]:
-                        if col in merged.columns:
-                            merged.at[left_idx, col] = merged.at[right_idx, col]
+                for col in pur_columns_to_copy:
+                    if col in merged.columns:
+                        merged.at[left_idx, col] = merged.at[right_idx, col]
 
                 merged.at[left_idx, "Match_Status"] = "Fuzzy Match"
                 merged.at[left_idx, "Fuzzy Score"] = score
                 merged.at[right_idx, "Match_Status"] = "Fuzzy Consumed"
-
-    merged = merged[merged["Match_Status"] != "Fuzzy Consumed"]
+                
+                # Prevent double matching
+                open_books = open_books.drop(index=right_idx)
 
     # ---------------- GSTIN MISMATCH (FINAL FIXED) ----------------
-
     merged["PAN_2B"] = merged["Supplier GSTIN"].apply(extract_pan)
     merged["PAN_PUR"] = merged["Vendor/Customer GSTIN"].apply(extract_pan)
 
@@ -227,12 +226,25 @@ def process_reco(
         if best_match is not None and best_score >= 70:
             merged.at[left_idx, "Match_Status"] = "GSTIN Mismatch"
             merged.at[left_idx, "Fuzzy Score"] = best_score
-            merged.at[left_idx, "Vendor/Customer GSTIN"] = merged.at[best_match, "Vendor/Customer GSTIN"]
+            
+            # Copy over the purchase data before consuming
+            for col in pur_columns_to_copy:
+                if col in merged.columns:
+                    merged.at[left_idx, col] = merged.at[best_match, col]
 
             merged.at[best_match, "Match_Status"] = "GSTIN Consumed"
 
-    merged = merged[merged["Match_Status"] != "GSTIN Consumed"]
+    # ---------------- CLEANUP & RECALCULATE DIFFS ----------------
+    
+    # Drop rows that were rolled up into other rows
+    merged = merged[~merged["Match_Status"].isin(["Fuzzy Consumed", "GSTIN Consumed"])]
+    merged.drop(columns=["_merge", "PAN_2B", "PAN_PUR"], inplace=True)
 
-    merged.drop(columns=["_merge"], inplace=True)
+    # Recalculate differences so the output reflects the newly joined rows
+    merged["IGST Diff"] = merged["IGST Amount_PUR"] - merged["IGST Amount_2B"]
+    merged["CGST Diff"] = merged["CGST Amount_PUR"] - merged["CGST Amount_2B"]
+    merged["SGST Diff"] = merged["SGST Amount_PUR"] - merged["SGST Amount_2B"]
+    merged["Invoice Diff"] = merged["Invoice Value_PUR"] - merged["Invoice Value_2B"]
+    merged["Taxable Diff"] = merged["Taxable Amount"] - merged["Taxable Value"]
 
     return merged
