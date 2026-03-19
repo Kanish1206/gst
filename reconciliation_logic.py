@@ -22,31 +22,14 @@ def validate_columns(df, required_cols, df_name):
         raise ValueError(f"{df_name} is missing required columns: {missing}")
 
 # -------------------------------------------------
-# 3️⃣ EXTRACT PAN FROM GSTIN
+# 3️⃣ MAIN RECON FUNCTION
 # -------------------------------------------------
-def extract_pan(gstin):
-    if pd.isna(gstin):
-        return ""
-    gstin = str(gstin)
-    if len(gstin) < 15:
-        return ""
-    return gstin[2:12]  # PAN part
-
-# -------------------------------------------------
-# 4️⃣ MAIN RECON FUNCTION
-# -------------------------------------------------
-def process_reco(
-    gst_df,
-    pur_df,
-    doc_threshold=75,
-    tax_tolerance=10,
-    gstin_mismatch_tolerance=20,
-):
+def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_mismatch_tolerance=20):
 
     gst = gst_df.copy()
     pur = pur_df.copy()
 
-    # ---------------- REQUIRED COLUMNS ----------------
+    # Define Required Columns
     gst_required = [
         "Supplier GSTIN", "Document Number", "Document Date",
         "Return Period", "Taxable Value",
@@ -65,9 +48,10 @@ def process_reco(
     validate_columns(gst, gst_required, "2B File")
     validate_columns(pur, pur_required, "Purchase File")
 
-    # ---------------- PREP ----------------
+    # ---------------- PRESERVE ORIGINAL GSTIN ----------------
     pur["Vendor/Customer GSTIN"] = pur["GSTIN Of Vendor/Customer"]
 
+    # Normalize Document Numbers
     gst["doc_norm"] = normalize_doc(gst["Document Number"])
     pur["doc_norm"] = normalize_doc(pur["Reference Document No."])
 
@@ -88,8 +72,8 @@ def process_reco(
 
     pur_agg = pur.groupby(["Supplier GSTIN", "doc_norm"], as_index=False).agg({
         "Reference Document No.": "first",
-        "Vendor/Customer GSTIN": "first",
-        "Vendor/Customer Name": "first",
+        "Vendor/Customer GSTIN": "first",  
+        "Vendor/Customer Name": "first",  
         "Document Date": "first",
         "FI Document Number": "first",
         "Taxable Amount": "sum",
@@ -108,7 +92,7 @@ def process_reco(
         indicator=True,
     )
 
-    # ---------------- NUMERIC CLEAN ----------------
+    # ---------------- NUMERIC CLEANING ----------------
     numeric_cols = [
         "IGST Amount_2B", "CGST Amount_2B", "SGST Amount_2B",
         "Invoice Value_2B", "Taxable Value",
@@ -121,7 +105,7 @@ def process_reco(
             merged[col] = 0
         merged[col] = pd.to_numeric(merged[col], errors="coerce").fillna(0)
 
-    # ---------------- INITIAL DIFF & EXACT MATCHING ----------------
+    # ---------------- INITIAL DIFF CALCULATION ----------------
     merged["IGST Diff"] = merged["IGST Amount_PUR"] - merged["IGST Amount_2B"]
     merged["CGST Diff"] = merged["CGST Amount_PUR"] - merged["CGST Amount_2B"]
     merged["SGST Diff"] = merged["SGST Amount_PUR"] - merged["SGST Amount_2B"]
@@ -132,7 +116,6 @@ def process_reco(
     merged["Fuzzy Score"] = 0.0
 
     both_mask = merged["_merge"] == "both"
-
     tax_condition = (
         (merged["IGST Diff"].abs() <= tax_tolerance) &
         (merged["CGST Diff"].abs() <= tax_tolerance) &
@@ -146,15 +129,8 @@ def process_reco(
     merged.loc[merged["_merge"] == "left_only", "Match_Status"] = "Open in 2B"
     merged.loc[merged["_merge"] == "right_only", "Match_Status"] = "Open in Books"
 
-    # Define columns to pull over when a fuzzy/GSTIN match is found
-    pur_columns_to_copy = [col for col in merged.columns if col.endswith("_PUR")] + [
-        "Reference Document No.", "Vendor/Customer Name", 
-        "FI Document Number", "Taxable Amount", "Vendor/Customer GSTIN"
-    ]
-
-    # ---------------- FUZZY MATCH ----------------
+    # ---------------- FUZZY MATCHING ----------------
     for gstin in merged["Supplier GSTIN"].dropna().unique():
-
         open_2b = merged[(merged["Supplier GSTIN"] == gstin) & (merged["Match_Status"] == "Open in 2B")]
         open_books = merged[(merged["Supplier GSTIN"] == gstin) & (merged["Match_Status"] == "Open in Books")]
 
@@ -162,89 +138,68 @@ def process_reco(
             left_doc = merged.at[left_idx, "doc_norm"]
             left_invoice = merged.at[left_idx, "Invoice Value_2B"]
 
-            candidates = open_books[
-                (open_books["Invoice Value_PUR"] - left_invoice).abs() <= tax_tolerance
-            ]
-
-            if candidates.empty:
+            # FIX: Skip blank document numbers to avoid false positive matches
+            if not left_doc or pd.isna(left_doc):
                 continue
+
+            candidates = open_books[(open_books["Invoice Value_PUR"] - left_invoice).abs() <= tax_tolerance]
+            if candidates.empty: continue
 
             candidate_dict = dict(zip(candidates.index, candidates["doc_norm"]))
             match = process.extractOne(left_doc, candidate_dict, scorer=fuzz.ratio, score_cutoff=doc_threshold)
 
             if match:
                 _, score, right_idx = match
-
-                for col in pur_columns_to_copy:
+                
+                # Copy all relevant Purchase data to the 2B row
+                pur_columns = [col for col in merged.columns if col.endswith("_PUR") or col in [
+                    "Reference Document No.", "Vendor/Customer Name", 
+                    "FI Document Number", "Taxable Amount", "Vendor/Customer GSTIN"
+                ]]
+                for col in pur_columns:
                     if col in merged.columns:
                         merged.at[left_idx, col] = merged.at[right_idx, col]
 
                 merged.at[left_idx, "Match_Status"] = "Fuzzy Match"
                 merged.at[left_idx, "Fuzzy Score"] = score
                 merged.at[right_idx, "Match_Status"] = "Fuzzy Consumed"
-                
-                # Prevent double matching
+
+                # FIX: Drop the consumed candidate from open_books to prevent double matching
                 open_books = open_books.drop(index=right_idx)
 
-    # ---------------- GSTIN MISMATCH (FINAL FIXED) ----------------
-    merged["PAN_2B"] = merged["Supplier GSTIN"].apply(extract_pan)
-    merged["PAN_PUR"] = merged["Vendor/Customer GSTIN"].apply(extract_pan)
+    merged = merged[merged["Match_Status"] != "Fuzzy Consumed"]
 
-    for left_idx in merged[merged["Match_Status"] == "Open in 2B"].index:
+    # ---------------- GSTIN MISMATCH CHECK ----------------
+    open_2b_final = merged[merged["Match_Status"] == "Open in 2B"]
+    open_books_final = merged[merged["Match_Status"] == "Open in Books"]
 
+    for left_idx in open_2b_final.index:
         left_doc = merged.at[left_idx, "doc_norm"]
         left_val = merged.at[left_idx, "Invoice Value_2B"]
-        left_pan = merged.at[left_idx, "PAN_2B"]
-        left_gstin = merged.at[left_idx, "Supplier GSTIN"]
+        
+        possible = open_books_final[open_books_final["doc_norm"] == left_doc]
 
-        candidates = merged[
-            (merged["Match_Status"] == "Open in Books") &
-            ((merged["Invoice Value_PUR"] - left_val).abs() <= gstin_mismatch_tolerance)
-        ]
-
-        best_match = None
-        best_score = -1
-
-        for right_idx in candidates.index:
-
-            right_doc = merged.at[right_idx, "doc_norm"]
-            right_pan = merged.at[right_idx, "PAN_PUR"]
-            right_gstin = merged.at[right_idx, "Supplier GSTIN"]
-
-            if left_pan == "" or left_pan != right_pan:
-                continue
-
-            if left_gstin == right_gstin:
-                continue
-
-            score = fuzz.ratio(left_doc, right_doc)
-
-            if score > best_score:
-                best_score = score
-                best_match = right_idx
-
-        if best_match is not None and best_score >= 70:
-            merged.at[left_idx, "Match_Status"] = "GSTIN Mismatch"
-            merged.at[left_idx, "Fuzzy Score"] = best_score
+        for right_idx in possible.index:
+            right_val = merged.at[right_idx, "Invoice Value_PUR"]
             
-            # Copy over the purchase data before consuming
-            for col in pur_columns_to_copy:
-                if col in merged.columns:
-                    merged.at[left_idx, col] = merged.at[best_match, col]
+            if abs(left_val - right_val) <= gstin_mismatch_tolerance:
+                merged.at[left_idx, "Match_Status"] = "GSTIN Mismatch"
+                merged.at[right_idx, "Match_Status"] = "GSTIN Mismatch"
+                
+                # Ensure the Vendor/Customer GSTIN is visible on the 2B row for easy comparison
+                merged.at[left_idx, "Vendor/Customer GSTIN"] = merged.at[right_idx, "Vendor/Customer GSTIN"]
+                
+                # FIX: Remove consumed candidate and break to prevent double matching
+                open_books_final = open_books_final.drop(index=right_idx)
+                break 
 
-            merged.at[best_match, "Match_Status"] = "GSTIN Consumed"
-
-    # ---------------- CLEANUP & RECALCULATE DIFFS ----------------
-    
-    # Drop rows that were rolled up into other rows
-    merged = merged[~merged["Match_Status"].isin(["Fuzzy Consumed", "GSTIN Consumed"])]
-    merged.drop(columns=["_merge", "PAN_2B", "PAN_PUR"], inplace=True)
-
-    # Recalculate differences so the output reflects the newly joined rows
+    # FIX: Recalculate diffs at the very end to ensure copied fuzzy match values are accurately reflected
     merged["IGST Diff"] = merged["IGST Amount_PUR"] - merged["IGST Amount_2B"]
     merged["CGST Diff"] = merged["CGST Amount_PUR"] - merged["CGST Amount_2B"]
     merged["SGST Diff"] = merged["SGST Amount_PUR"] - merged["SGST Amount_2B"]
     merged["Invoice Diff"] = merged["Invoice Value_PUR"] - merged["Invoice Value_2B"]
     merged["Taxable Diff"] = merged["Taxable Amount"] - merged["Taxable Value"]
+
+    merged.drop(columns=["_merge"], inplace=True)
 
     return merged
