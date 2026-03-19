@@ -173,32 +173,30 @@ def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_misma
 
     merged = merged[merged["Match_Status"] != "Fuzzy Consumed"]
 
-    # ---------------- GSTIN MISMATCH (PAN BASED) ----------------
-
     # ---------------- GSTIN MISMATCH (SAFE VERSION) ----------------
 
-merged["PAN_2B"] = merged["Supplier GSTIN"].apply(extract_pan)
-merged["PAN_PUR"] = merged["Vendor/Customer GSTIN"].apply(extract_pan)
+    merged["PAN_2B"] = merged["Supplier GSTIN"].apply(extract_pan)
+    merged["PAN_PUR"] = merged["Vendor/Customer GSTIN"].apply(extract_pan)
 
-open_2b_idx = merged[merged["Match_Status"] == "Open in 2B"].index
+    open_2b_idx = merged[merged["Match_Status"] == "Open in 2B"].index
 
-for left_idx in open_2b_idx:
+    for left_idx in open_2b_idx:
 
-    left_doc = merged.at[left_idx, "doc_norm"]
-    left_val = merged.at[left_idx, "Invoice Value_2B"]
-    left_pan = merged.at[left_idx, "PAN_2B"]
-    left_gstin = merged.at[left_idx, "Supplier GSTIN"]
+        left_doc = merged.at[left_idx, "doc_norm"]
+        left_val = merged.at[left_idx, "Invoice Value_2B"]
+        left_pan = merged.at[left_idx, "PAN_2B"]
+        left_gstin = merged.at[left_idx, "Supplier GSTIN"]
 
     candidates = merged[
-        (merged["Match_Status"] == "Open in Books") &
-        ((merged["Invoice Value_PUR"] - left_val).abs() <= gstin_mismatch_tolerance)
+            (merged["Match_Status"] == "Open in Books") &
+            ((merged["Invoice Value_PUR"] - left_val).abs() <= gstin_mismatch_tolerance)
     ]
 
     if candidates.empty:
         continue
 
-    best_match = None
-    best_score = -1
+        best_match = None
+        best_score = -1
 
     for right_idx in candidates.index:
 
