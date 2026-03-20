@@ -70,12 +70,11 @@ def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_misma
         "Invoice Value": "sum",
     })
 
-    pur_agg = pur.groupby(["Supplier GSTIN", "doc_norm"], as_index=False).agg({
+    pur_agg = pur.groupby(["Supplier GSTIN", "doc_norm","Cons"], as_index=False).agg({
         "Reference Document No.": "first",
         "Vendor/Customer GSTIN": "first",  
         "Vendor/Customer Name": "first",  
         "Document Date": "first",
-        "Cons": "first",
         "Taxable Amount": "sum",
         "IGST Amount": "sum",
         "CGST Amount": "sum",
