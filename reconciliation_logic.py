@@ -39,11 +39,11 @@ def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_misma
 
     pur_required = [
         "GSTIN Of Vendor/Customer", "Reference Document No.",
-        "Taxable Amount", "Document Date", "FI Document Number",
+        "Taxable Amount", "Document Date", "Cons",
         "Vendor/Customer Name",
         "IGST Amount", "CGST Amount",
         "SGST Amount", "Invoice Value",
-    ]
+    ]  #FI Document Number
 
     validate_columns(gst, gst_required, "2B File")
     validate_columns(pur, pur_required, "Purchase File")
@@ -58,7 +58,7 @@ def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_misma
     pur.rename(columns={"GSTIN Of Vendor/Customer": "Supplier GSTIN"}, inplace=True)
 
     # ---------------- AGGREGATION ----------------
-    gst_agg = gst.groupby(["Supplier GSTIN", "doc_norm"], as_index=False).agg({
+    gst_agg = gst.groupby(["Supplier GSTIN", "doc_norm","Document Type"], as_index=False).agg({
         "Document Number": "first",
         "Return Period": "first",
         "Supplier Name": "first",
@@ -75,7 +75,7 @@ def process_reco(gst_df, pur_df, doc_threshold=75, tax_tolerance=10, gstin_misma
         "Vendor/Customer GSTIN": "first",  
         "Vendor/Customer Name": "first",  
         "Document Date": "first",
-        "FI Document Number": "first",
+        "Cons": "first",
         "Taxable Amount": "sum",
         "IGST Amount": "sum",
         "CGST Amount": "sum",
