@@ -9,7 +9,15 @@ SAVE_FILE = r"C:\TEMP\saved_open_items.csv"  # 🔁 CHANGE THIS PATH
 # ================= NEW FUNCTIONS =================
 
 def save_open_items(df):
+    import os
+
+    os.makedirs(os.path.dirname(SAVE_FILE), exist_ok=True)
+
     open_df = df[df["Match_Status"].isin(["Open in 2B", "Open in Books"])]
+
+    print("Saving file to:", SAVE_FILE)
+    print("Open rows:", len(open_df))
+
 
     if not open_df.empty:
         if os.path.exists(SAVE_FILE):
