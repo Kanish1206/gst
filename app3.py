@@ -118,7 +118,8 @@ if gst_file and pur_file:
             run_btn = st.button("🚀 INITIATE PROCESS", use_container_width=True)
 
             # ✅ NEW BUTTON (ADDED ONLY)
-            reuse_btn = st.button("♻️ USE PREVIOUS OPEN MATCHES", use_container_width=True)
+            reuse_btn = st.checkbox("♻️ USE PREVIOUS OPEN MATCHES", use_container_width=True)
+            auto_mode = st.checkbox("🧠 Enable Auto Learning", value=True)
 
         # ✅ ONLY CONDITION UPDATED (NO STRUCTURE CHANGE)
         if run_btn or reuse_btn:
