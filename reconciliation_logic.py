@@ -9,36 +9,39 @@ SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"
 
 # ================= FIXED SAVE FUNCTION =================
 def save_open_items(df):
-    # ✅ Ensure folder exists
-    folder = os.path.dirname(SAVE_FILE)
-    if not os.path.exists(folder):
-        os.makedirs(folder, exist_ok=True)
-
-    # Filter open records
-    open_df = df[df["Match_Status"].isin(["Open in 2B", "Open in Books"])]
-
     try:
-        # ✅ ALWAYS create file (even if empty → for visibility/debug)
+        # ✅ Handle safe folder extraction
+        folder = os.path.dirname(SAVE_FILE)
+
+        # 👉 Fix empty folder issue
+        if folder and not os.path.exists(folder):
+            os.makedirs(folder, exist_ok=True)
+
+        # Filter open records
+        open_df = df[df["Match_Status"].isin(["Open in 2B", "Open in Books"])]
+
+        # ✅ Ensure file always created
         if os.path.exists(SAVE_FILE):
-            existing = pd.read_csv(SAVE_FILE)
+            try:
+                existing = pd.read_csv(SAVE_FILE)
+            except:
+                existing = pd.DataFrame()
 
             if not open_df.empty:
                 combined = pd.concat([existing, open_df], ignore_index=True).drop_duplicates()
             else:
-                combined = existing  # keep old data
-
+                combined = existing
         else:
-            # If no file exists
             combined = open_df if not open_df.empty else pd.DataFrame()
 
-        # ✅ Write file (guaranteed)
+        # ✅ Write file safely
         combined.to_csv(SAVE_FILE, index=False)
 
         print(f"✅ File saved at: {SAVE_FILE}")
         print(f"👉 Rows saved: {len(combined)}")
 
     except Exception as e:
-        print("❌ Error saving file:", str(e))
+        print("❌ SAVE ERROR:", str(e))
 
 
 # ================= LOAD FUNCTION =================
