@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import reconciliation_logic as reco_logic
+import os  # ✅ NEW
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -92,6 +93,25 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+# ---------------- NEW CONTROLS (ADDED ONLY) ----------------
+auto_mode = st.checkbox("🧠 Enable Auto Learning", value=True)
+
+col_clear, col_view = st.columns(2)
+
+with col_clear:
+    if st.button("🧹 Clear Learned Data"):
+        if os.path.exists("reco_storage.db"):
+            os.remove("reco_storage.db")
+            st.success("Memory Cleared")
+
+with col_view:
+    if st.button("📂 Show Learned Data"):
+        saved_df = reco_logic.load_open_items()
+        if not saved_df.empty:
+            st.dataframe(saved_df)
+        else:
+            st.info("No learned data found")
+
 # ---------------- UPLOAD ZONE ----------------
 col1, col2 = st.columns(2)
 with col1:
@@ -112,22 +132,16 @@ if gst_file and pur_file:
         df_2b.columns = df_2b.columns.str.strip()
         df_books.columns = df_books.columns.str.strip()
 
-        # Center the button
         _, btn_col, _ = st.columns([1, 2, 1])
         with btn_col:
             run_btn = st.button("🚀 INITIATE PROCESS", use_container_width=True)
 
-            # ✅ NEW BUTTON (ADDED ONLY)
-            reuse_btn = st.checkbox("♻️ USE PREVIOUS OPEN MATCHES", use_container_width=True)
-            auto_mode = st.checkbox("🧠 Enable Auto Learning", value=True)
-
-        # ✅ ONLY CONDITION UPDATED (NO STRUCTURE CHANGE)
-        if run_btn or reuse_btn:
+        if run_btn:
             with st.spinner("🧠 Please Wait!..."):
                 result_df = reco_logic.process_reco(df_2b, df_books)
 
-                # ✅ NEW LOGIC (ADDED ONLY)
-                if reuse_btn:
+                # ✅ NEW AUTO LEARNING (ADDED ONLY)
+                if auto_mode:
                     result_df = reco_logic.apply_previous_matches(result_df)
 
             st.markdown('<div class="animate-fade">', unsafe_allow_html=True)
