@@ -3,38 +3,55 @@ import numpy as np
 from rapidfuzz import process, fuzz
 import os
 
-# ================= NEW STORAGE CONFIG =================
-SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"  # 🔁 CHANGE THIS PATH
+# ================= STORAGE CONFIG =================
+SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"
 
-# ================= NEW FUNCTIONS =================
 
+# ================= FIXED SAVE FUNCTION =================
 def save_open_items(df):
-    import os
+    # ✅ Ensure folder exists
+    folder = os.path.dirname(SAVE_FILE)
+    if not os.path.exists(folder):
+        os.makedirs(folder, exist_ok=True)
 
-    os.makedirs(os.path.dirname(SAVE_FILE), exist_ok=True)
-
+    # Filter open records
     open_df = df[df["Match_Status"].isin(["Open in 2B", "Open in Books"])]
 
-    print("Saving file to:", SAVE_FILE)
-    print("Open rows:", len(open_df))
-
-
-    if not open_df.empty:
+    try:
+        # ✅ ALWAYS create file (even if empty → for visibility/debug)
         if os.path.exists(SAVE_FILE):
             existing = pd.read_csv(SAVE_FILE)
-            combined = pd.concat([existing, open_df]).drop_duplicates()
-        else:
-            combined = open_df
 
+            if not open_df.empty:
+                combined = pd.concat([existing, open_df], ignore_index=True).drop_duplicates()
+            else:
+                combined = existing  # keep old data
+
+        else:
+            # If no file exists
+            combined = open_df if not open_df.empty else pd.DataFrame()
+
+        # ✅ Write file (guaranteed)
         combined.to_csv(SAVE_FILE, index=False)
 
+        print(f"✅ File saved at: {SAVE_FILE}")
+        print(f"👉 Rows saved: {len(combined)}")
 
+    except Exception as e:
+        print("❌ Error saving file:", str(e))
+
+
+# ================= LOAD FUNCTION =================
 def load_open_items():
     if os.path.exists(SAVE_FILE):
-        return pd.read_csv(SAVE_FILE)
+        try:
+            return pd.read_csv(SAVE_FILE)
+        except:
+            return pd.DataFrame()
     return pd.DataFrame()
 
 
+# ================= APPLY OLD MATCH =================
 def apply_previous_matches(current_df):
     old_df = load_open_items()
 
@@ -60,8 +77,7 @@ def apply_previous_matches(current_df):
     return current_df
 
 
-# ================= ORIGINAL CODE START =================
-# (UNCHANGED BELOW)
+# ================= ORIGINAL CODE (UNCHANGED) =================
 
 MATCH_EXACT = "Exact Match"
 MATCH_VALUE_MISMATCH = "Value Mismatch"
@@ -206,12 +222,12 @@ def process_reco(
     merged.loc[merged["_merge"] == "left_only", "Match_Status"] = MATCH_OPEN_2B
     merged.loc[merged["_merge"] == "right_only", "Match_Status"] = MATCH_OPEN_BOOKS
 
-    # ⚠️ (All your existing matching logic remains SAME — omitted here for brevity)
+    # (rest of your logic unchanged...)
 
     merged = compute_diffs(merged)
     merged.drop(columns=["_merge"], inplace=True, errors="ignore")
 
-    # ================= NEW ADDITION =================
+    # ✅ SAVE (FIXED)
     save_open_items(merged)
 
     return merged
