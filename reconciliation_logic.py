@@ -2,6 +2,23 @@ import pandas as pd
 import numpy as np
 from rapidfuzz import process, fuzz
 import os
+import sqlite3
+
+DB_FILE = "reco_storage.db"
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS open_items (
+        doc_norm TEXT,
+        supplier_gstin TEXT,
+        data TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
 
 # ================= STORAGE CONFIG =================
 SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"
@@ -36,12 +53,46 @@ def save_open_items(df):
 
 # ================= LOAD FUNCTION =================
 def load_open_items():
-    if os.path.exists(SAVE_FILE):
-        try:
-            return pd.read_csv(SAVE_FILE)
-        except:
-            return pd.DataFrame()
-    return pd.DataFrame()
+    init_db()
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT data FROM open_items")
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    data = [json.loads(r[0]) for r in rows]
+
+    return pd.DataFrame(data) if data else pd.DataFrame()
+def apply_previous_matches(current_df):
+    old_df = load_open_items()
+
+    if old_df.empty:
+        return current_df
+
+    for idx in current_df.index:
+        if current_df.at[idx, "Match_Status"] in ["Open in 2B", "Open in Books"]:
+
+            doc = current_df.at[idx, "doc_norm"]
+            gstin = current_df.at[idx, "Supplier GSTIN"]
+
+            match = old_df[
+                (old_df["doc_norm"] == doc) &
+                (old_df["Supplier GSTIN"] == gstin)
+            ]
+
+            if not match.empty:
+                row = match.iloc[0]
+
+                for col in current_df.columns:
+                    if col in row:
+                        current_df.at[idx, col] = row[col]
+
+                current_df.at[idx, "Match_Status"] = "Auto Matched (AI Learned)"
+
+    return current_df
 
 
 # ================= APPLY OLD MATCH =================
