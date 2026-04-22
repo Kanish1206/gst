@@ -344,10 +344,8 @@ if gst_file and pur_file:
             work["_PAN_PUR"] = extract_pan(work.get("Vendor/Customer GSTIN", pd.Series(dtype=str)))
 
             if any_input:
-    masks = []
-
-    # Pre-clean once (NO UI IMPACT)
-    gstin_2b_clean = normalize_series(work.get("Supplier GSTIN", pd.Series("", index=work.index)))
+                masks = []
+            gstin_2b_clean = normalize_series(work.get("Supplier GSTIN", pd.Series("", index=work.index)))
     gstin_pur_clean = normalize_series(work.get("Vendor/Customer GSTIN", pd.Series("", index=work.index)))
     pan_2b_clean = normalize_series(work["_PAN_2B"])
     pan_pur_clean = normalize_series(work["_PAN_PUR"])
@@ -390,7 +388,10 @@ if gst_file and pur_file:
 
     filtered = work[combined]
 else:
-    filtered = pd.DataFrame(columns=work.columns)
+    filtered = pd.DataFrame(columns=work.columns)    
+
+    # Pre-clean once (NO UI IMPACT)
+    
             # ════════════════════════════════════════════════════════
             #  MANUAL MATCH MAKER
             # ════════════════════════════════════════════════════════
