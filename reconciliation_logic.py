@@ -4,7 +4,7 @@ from rapidfuzz import process, fuzz
 import os
 
 # ================= NEW STORAGE CONFIG =================
-SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"  # 🔁 CHANGE THIS PATH
+SAVE_FILE = r"C:\TEMP\saved_open_items.csv"  # 🔁 CHANGE THIS PATH
 
 # ================= NEW FUNCTIONS =================
 
