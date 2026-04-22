@@ -9,18 +9,16 @@ SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"
 
 # ================= FIXED SAVE FUNCTION =================
 def save_open_items(df):
+    print("SAVE FILE PATH:", SAVE_FILE)  # 👈 HERE
+
     try:
-        # ✅ Handle safe folder extraction
         folder = os.path.dirname(SAVE_FILE)
 
-        # 👉 Fix empty folder issue
         if folder and not os.path.exists(folder):
             os.makedirs(folder, exist_ok=True)
 
-        # Filter open records
         open_df = df[df["Match_Status"].isin(["Open in 2B", "Open in Books"])]
 
-        # ✅ Ensure file always created
         if os.path.exists(SAVE_FILE):
             try:
                 existing = pd.read_csv(SAVE_FILE)
@@ -34,7 +32,6 @@ def save_open_items(df):
         else:
             combined = open_df if not open_df.empty else pd.DataFrame()
 
-        # ✅ Write file safely
         combined.to_csv(SAVE_FILE, index=False)
 
         print(f"✅ File saved at: {SAVE_FILE}")
