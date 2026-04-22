@@ -246,7 +246,7 @@ if gst_file and pur_file:
             fs_left, fs_right = st.columns(2)
 
             # ── Left: GSTR-2B ────────────────────────────────────────
-            with fs_left:
+  with fs_left:
                 st.markdown('<div class="side-header-2b">📘 GSTR-2B — Filter & Search</div>', unsafe_allow_html=True)
 
                 twoB_status = st.multiselect(
@@ -581,6 +581,6 @@ else:
             <h2 style="margin-bottom:10px;">Awaiting Data Injection 🚀</h2>
             <p>Upload your <b>GSTR-2B</b> and <b>Purchase Register</b> files above to trigger the reconciliation engine.</p>
         </div>
-    """, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)  
 else:
     st.info("Upload files to start")
