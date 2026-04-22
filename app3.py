@@ -346,49 +346,48 @@ if gst_file and pur_file:
             if any_input:
                 masks = []
             gstin_2b_clean = normalize_series(work.get("Supplier GSTIN", pd.Series("", index=work.index)))
-    gstin_pur_clean = normalize_series(work.get("Vendor/Customer GSTIN", pd.Series("", index=work.index)))
-    pan_2b_clean = normalize_series(work["_PAN_2B"])
-    pan_pur_clean = normalize_series(work["_PAN_PUR"])
+            gstin_pur_clean = normalize_series(work.get("Vendor/Customer GSTIN", pd.Series("", index=work.index)))
+            pan_2b_clean = normalize_series(work["_PAN_2B"])
+            pan_pur_clean = normalize_series(work["_PAN_PUR"])
+            
+            if twoB_has_input:
+                m = pd.Series(True, index=work.index)
 
-    if twoB_has_input:
-        m = pd.Series(True, index=work.index)
+            if twoB_status:
+                m &= work["Match_Status"].isin(twoB_status)
 
-        if twoB_status:
-            m &= work["Match_Status"].isin(twoB_status)
-
-        if twoB_search_by != "— None —" and twoB_search_val.strip():
-            q = normalize_series(pd.Series([twoB_search_val])).iloc[0]
+            if twoB_search_by != "— None —" and twoB_search_val.strip():
+                q = normalize_series(pd.Series([twoB_search_val])).iloc[0]
 
             if twoB_search_by == "GSTIN":
                 m &= gstin_2b_clean.str.contains(q, regex=False)
             else:
                 m &= pan_2b_clean.str.contains(q, regex=False)
+                
+                masks.append(m)
 
-        masks.append(m)
+          if books_has_input:
+              m = pd.Series(True, index=work.index)
 
-    if books_has_input:
-        m = pd.Series(True, index=work.index)
+          if pur_status:
+              m &= work["Match_Status"].isin(pur_status)
 
-        if pur_status:
-            m &= work["Match_Status"].isin(pur_status)
+          if pur_search_by != "— None —" and pur_search_val.strip():
+              q = normalize_series(pd.Series([pur_search_val])).iloc[0]
 
-        if pur_search_by != "— None —" and pur_search_val.strip():
-            q = normalize_series(pd.Series([pur_search_val])).iloc[0]
-
-            if pur_search_by == "GSTIN":
+          if pur_search_by == "GSTIN":
                 m &= gstin_pur_clean.str.contains(q, regex=False)
             else:
                 m &= pan_pur_clean.str.contains(q, regex=False)
+            masks.append(m)
+        combined = masks[0]
+        for m in masks[1:]:
+            combined = combined | m
+        filtered = work[combined]
+    else:
+        filtered = pd.DataFrame(columns=work.columns) 
 
-        masks.append(m)
-
-    combined = masks[0]
-    for m in masks[1:]:
-        combined = combined | m
-
-    filtered = work[combined]
-else:
-    filtered = pd.DataFrame(columns=work.columns)    
+       
 
     # Pre-clean once (NO UI IMPACT)
     
