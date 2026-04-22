@@ -9,14 +9,7 @@ SAVE_FILE = r"C:\Users\kanish.patel\Downloads\test\saved_open_items.csv"
 
 # ================= FIXED SAVE FUNCTION =================
 def save_open_items(df):
-    print("SAVE FILE PATH:", SAVE_FILE)  # 👈 HERE
-
     try:
-        folder = os.path.dirname(SAVE_FILE)
-
-        if folder and not os.path.exists(folder):
-            os.makedirs(folder, exist_ok=True)
-
         open_df = df[df["Match_Status"].isin(["Open in 2B", "Open in Books"])]
 
         if os.path.exists(SAVE_FILE):
@@ -34,7 +27,7 @@ def save_open_items(df):
 
         combined.to_csv(SAVE_FILE, index=False)
 
-        print(f"✅ File saved at: {SAVE_FILE}")
+        print(f"✅ File saved in app directory: {SAVE_FILE}")
         print(f"👉 Rows saved: {len(combined)}")
 
     except Exception as e:
