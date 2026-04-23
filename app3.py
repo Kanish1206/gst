@@ -322,7 +322,7 @@ if gst_file and pur_file:
                         for i, (idx_2b, idx_books) in enumerate(st.session_state["manual_matches"]):
                             doc_num = result_df.at[idx_2b, 'Document Number']
                             r1, r2 = st.columns([0.85, 0.15])
-                            r1.write(f"Match #{i+1}: 2B Doc **{doc_num}** matched with Books index **{idx_books}**")
+                            r1.write(f"Match #{i+1}: 2B Doc **{doc_num}** matched with Books index **{Reference Document No.}**")
                             if r2.button("Undo", key=f"undo_{i}_{idx_2b}"):
                                 live_df = st.session_state["result_df"]
                                 live_df.at[idx_2b, "Match_Status"] = reco_logic.MATCH_OPEN_2B
@@ -345,7 +345,7 @@ if gst_file and pur_file:
                         if row["Match_Status"] == "Manual Match (Consumed)": continue
                         chk_col, info_col = st.columns([0.1, 0.9])
                         if chk_col.checkbox("", key=f"chk_2b_{df_idx}"): sel_2b_idx = df_idx
-                        info_col.markdown(f"<div class='mm-row-card'><b>GSTIN:</b> {row.get('Supplier GSTIN','—')}<br><b>Doc:</b> {row.get('Document Number','—')}<br><b>Tax:</b> {fmt_amt(row.get('IGST Amount_2B',0))}</div>", unsafe_allow_html=True)
+                        info_col.markdown(f"<div class='mm-row-card'><b>GSTIN:</b> {row.get('Supplier GSTIN','—')}<br><b>Doc:</b> {row.get('Document Number','—')}<br><b>Return Period:</b> {row.get('Return Period','—')}<br><b>IGST:</b> {fmt_amt(row.get('IGST Amount_2B',0))}<br><b>CGST:</b> {fmt_amt(row.get('CGST Amount_2B',0))}<br><b>SGST:</b> {fmt_amt(row.get('SGST Amount_2B',0))}</div>", unsafe_allow_html=True)
 
                 with mm_right:
                     st.markdown('<div class="side-header-pur">📙 Open in Books</div>', unsafe_allow_html=True)
@@ -353,7 +353,7 @@ if gst_file and pur_file:
                         if row["Match_Status"] == "Manual Match (Consumed)": continue
                         chk_col, info_col = st.columns([0.1, 0.9])
                         if chk_col.checkbox("", key=f"chk_bk_{df_idx}"): sel_books_idx = df_idx
-                        info_col.markdown(f"<div class='mm-row-card'><b>GSTIN:</b> {row.get('Vendor/Customer GSTIN','—')}<br><b>Doc:</b> {row.get('Reference Document No.','—')}<br><b>Tax:</b> {fmt_amt(row.get('IGST Amount_PUR',0))}</div>", unsafe_allow_html=True)
+                        info_col.markdown(f"<div class='mm-row-card'><b>GSTIN:</b> {row.get('Vendor/Customer GSTIN','—')}<br><b>Doc:</b> {row.get('Reference Document No.','—')}<br><b>Document Date:</b> {row.get('Document Date_PUR','—')}<br><b>IGST:</b> {fmt_amt(row.get('IGST Amount_PUR',0))}<br><b>CGST:</b> {fmt_amt(row.get('CGST Amount_PUR',0))}<br><b>SGST:</b> {fmt_amt(row.get('SGST Amount_PUR',0))}</div>", unsafe_allow_html=True)
 
                 _, ok_col, _ = st.columns([1, 2, 1])
                 if ok_col.button("✅ Confirm Match", use_container_width=True):
