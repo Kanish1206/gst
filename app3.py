@@ -322,7 +322,7 @@ if gst_file and pur_file:
                         for i, (idx_2b, idx_books) in enumerate(st.session_state["manual_matches"]):
                             doc_num = result_df.at[idx_2b, 'Document Number']
                             r1, r2 = st.columns([0.85, 0.15])
-                            r1.write(f"Match #{i+1}: 2B Doc **{"doc_norm"}** matched with Books index **Reference Document No.**")
+                            r1.write(f"Match #{i+1}: 2B Doc **{"doc_num"}** matched with Books index **{row.get('Reference Document No.','—')}**")
                             if r2.button("Undo", key=f"undo_{i}_{idx_2b}"):
                                 live_df = st.session_state["result_df"]
                                 live_df.at[idx_2b, "Match_Status"] = reco_logic.MATCH_OPEN_2B
