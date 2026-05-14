@@ -57,9 +57,9 @@ def compute_diffs(df):
 def process_reco(
     gst_df,
     pur_df,
-    doc_threshold=70,  # Increased slightly for better safety at scale
+    doc_threshold=60,  # Increased slightly for better safety at scale
     tax_tolerance=10,
-    gstin_mismatch_tolerance=5,
+    gstin_mismatch_tolerance=3,
 ):
     gst = gst_df.copy()
     pur = pur_df.copy()
